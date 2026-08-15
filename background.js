@@ -8,7 +8,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 
   const target = { tabId };
-  
+
   try {
     await chrome.debugger.attach(target, "1.3");
 
@@ -16,21 +16,23 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.debugger.sendCommand(target, "Page.enable");
     await chrome.debugger.sendCommand(target, "Runtime.enable");
 
-    // 1. First, scroll down the page to trigger any lazy-loaded elements (like GitHub's contribution graph)
+    // 1. Scroll through the entire page to trigger lazy-loaded elements,
+    //    then scroll back to top so the page is in its normal visual state.
     await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: `
         new Promise((resolve) => {
           let totalHeight = 0;
-          let distance = 600;
+          const distance = 600;
           let scrolls = 0;
-          let timer = setInterval(() => {
+          const timer = setInterval(() => {
             window.scrollBy(0, distance);
             totalHeight += distance;
             scrolls++;
-            if (totalHeight >= document.documentElement.scrollHeight || scrolls > 40) {
+            if (totalHeight >= document.documentElement.scrollHeight || scrolls > 60) {
               clearInterval(timer);
               window.scrollTo(0, 0);
-              setTimeout(resolve, 800); // Wait for the page to stabilize after returning to top
+              // Give the page time to settle back at the top before we read metrics
+              setTimeout(resolve, 1200);
             }
           }, 100);
         })
@@ -38,34 +40,59 @@ chrome.action.onClicked.addListener(async (tab) => {
       awaitPromise: true
     });
 
-    // 2. Now get accurate page metrics AFTER all content has loaded
+    // 2. Read the true page dimensions at its NATURAL viewport size.
+    //    We intentionally do NOT change the viewport height — doing so would
+    //    cause elements that use 100vh / 100lvh / h-screen to expand and
+    //    fill the whole enlarged "viewport", producing a mostly-black image.
     const runtimeResult = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
-      expression: "JSON.stringify({ devicePixelRatio: window.devicePixelRatio, width: Math.max(document.documentElement.clientWidth, document.documentElement.scrollWidth, window.innerWidth), height: Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.clientHeight, document.documentElement.scrollHeight, document.documentElement.offsetHeight) })",
+      expression: `JSON.stringify({
+        devicePixelRatio: window.devicePixelRatio,
+        viewportWidth:    Math.max(document.documentElement.clientWidth, window.innerWidth),
+        viewportHeight:   window.innerHeight,
+        scrollWidth:      Math.max(document.body.scrollWidth,  document.documentElement.scrollWidth),
+        scrollHeight:     Math.max(document.body.scrollHeight, document.documentElement.scrollHeight,
+                                   document.documentElement.offsetHeight)
+      })`,
       returnByValue: true
     });
-    const pageMetrics = JSON.parse(runtimeResult.result.value);
-    
-    // We use max of clientWidth and scrollWidth to guarantee horizontal overflow is captured
-    const width = pageMetrics.width;
-    const height = pageMetrics.height;
-    const devicePixelRatio = pageMetrics.devicePixelRatio || 1;
+    const metrics = JSON.parse(runtimeResult.result.value);
 
-    // 3. Override device metrics to match the exact full page dimensions
+    const viewportWidth  = metrics.viewportWidth;
+    const viewportHeight = metrics.viewportHeight;
+    const fullWidth      = Math.max(metrics.scrollWidth,  viewportWidth);
+    const fullHeight     = Math.max(metrics.scrollHeight, viewportHeight);
+    const dpr            = metrics.devicePixelRatio || 1;
+
+    // 3. Only override the WIDTH (to capture horizontal overflow) and keep the
+    //    height equal to the real viewport height so that vh-based layouts
+    //    remain correct.  captureBeyondViewport:true in step 4 handles the
+    //    vertical extent.
     await chrome.debugger.sendCommand(target, "Emulation.setDeviceMetricsOverride", {
       mobile: false,
-      width: width,
-      height: height,
-      deviceScaleFactor: devicePixelRatio,
+      width:             fullWidth,
+      height:            viewportHeight,   // ← natural viewport height, NOT scrollHeight
+      deviceScaleFactor: dpr,
       screenOrientation: { angle: 0, type: "portraitPrimary" }
     });
 
-    // Wait a brief moment for the browser to re-paint the extended viewport
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Give the browser a moment to repaint after the width change
+    await new Promise(resolve => setTimeout(resolve, 600));
 
-    // Capture screenshot natively
+    // 4. Capture the full page by using captureBeyondViewport + an explicit
+    //    clip rect.  This reaches content below the fold WITHOUT telling the
+    //    page that the viewport is taller, so 100vh elements stay their
+    //    normal size.
     const captureResult = await chrome.debugger.sendCommand(target, "Page.captureScreenshot", {
       format: "png",
-      fromSurface: true
+      fromSurface: true,
+      captureBeyondViewport: true,
+      clip: {
+        x:      0,
+        y:      0,
+        width:  fullWidth,
+        height: fullHeight,
+        scale:  1
+      }
     });
 
     const dataUrl = `data:image/png;base64,${captureResult.data}`;
@@ -77,16 +104,11 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch (err) {
     console.error("Screenshot capture failed:", err);
   } finally {
-    // Cleanup state
     try {
       await chrome.debugger.sendCommand(target, "Emulation.clearDeviceMetricsOverride");
-    } catch (e) {
-      // Ignored if not attached
-    }
+    } catch (e) { /* ignored */ }
     try {
       await chrome.debugger.detach(target);
-    } catch (e) {
-      // Ignored if already detached
-    }
+    } catch (e) { /* ignored */ }
   }
 });
