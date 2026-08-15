@@ -57,11 +57,11 @@ chrome.action.onClicked.addListener(async (tab) => {
     });
     const metrics = JSON.parse(runtimeResult.result.value);
 
-    const viewportWidth  = metrics.viewportWidth;
+    const viewportWidth = metrics.viewportWidth;
     const viewportHeight = metrics.viewportHeight;
-    const fullWidth      = Math.max(metrics.scrollWidth,  viewportWidth);
-    const fullHeight     = Math.max(metrics.scrollHeight, viewportHeight);
-    const dpr            = metrics.devicePixelRatio || 1;
+    const fullWidth = Math.max(metrics.scrollWidth, viewportWidth);
+    const fullHeight = Math.max(metrics.scrollHeight, viewportHeight);
+    const dpr = metrics.devicePixelRatio || 1;
 
     // 3. Only override the WIDTH (to capture horizontal overflow) and keep the
     //    height equal to the real viewport height so that vh-based layouts
@@ -69,8 +69,8 @@ chrome.action.onClicked.addListener(async (tab) => {
     //    vertical extent.
     await chrome.debugger.sendCommand(target, "Emulation.setDeviceMetricsOverride", {
       mobile: false,
-      width:             fullWidth,
-      height:            viewportHeight,   // ← natural viewport height, NOT scrollHeight
+      width: fullWidth,
+      height: viewportHeight,   // ← natural viewport height, NOT scrollHeight
       deviceScaleFactor: dpr,
       screenOrientation: { angle: 0, type: "portraitPrimary" }
     });
@@ -87,11 +87,11 @@ chrome.action.onClicked.addListener(async (tab) => {
       fromSurface: true,
       captureBeyondViewport: true,
       clip: {
-        x:      0,
-        y:      0,
-        width:  fullWidth,
+        x: 0,
+        y: 0,
+        width: fullWidth,
         height: fullHeight,
-        scale:  1
+        scale: 1
       }
     });
 
@@ -112,3 +112,33 @@ chrome.action.onClicked.addListener(async (tab) => {
     } catch (e) { /* ignored */ }
   }
 });
+
+// --- DEVELOPMENT AUTO-RELOADER ---
+// Automatically connects to local watch server if running (npm run dev)
+(function initDevReloader() {
+  async function pollForChanges() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const res = await fetch("http://localhost:8890/poll", {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await res.json();
+      if (data && data.reload) {
+        chrome.runtime.reload();
+        return;
+      }
+      // Long-poll completed without change, poll again
+      pollForChanges();
+    } catch (e) {
+      // Dev server is offline, retry periodically in the background
+      setTimeout(pollForChanges, 3000);
+    }
+  }
+
+  pollForChanges();
+})();

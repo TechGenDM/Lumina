@@ -1,0 +1,8 @@
+{
+  "name": "lumina-extension",
+  "version": "1.0.0",
+  "description": "Lumina Chrome Extension",
+  "scripts": {
+    "dev": "node watch.js"
+  }
+}
