@@ -224,11 +224,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     let cropRect = null;
     let cropBtnGroup = null;
 
+    function syncCropOverlay() {
+        if (!cropRect) return;
+        const overlay = document.getElementById('dark-crop-overlay');
+        const pill = document.getElementById('crop-dimension-pill');
+        const cw = cropRect.width * cropRect.scaleX;
+        const ch = cropRect.height * cropRect.scaleY;
+        overlay.style.width = (cw * currentZoom) + 'px';
+        overlay.style.height = (ch * currentZoom) + 'px';
+        overlay.style.left = (cropRect.left * currentZoom) + 'px';
+        overlay.style.top = (cropRect.top * currentZoom) + 'px';
+        pill.textContent = `${Math.round(cw)} x ${Math.round(ch)}`;
+        
+        // Ensure corner size remains consistent regardless of zoom
+        cropRect.set({ cornerSize: 12 / currentZoom });
+    }
+
     function cleanupCrop() {
         if (cropRect) canvas.remove(cropRect);
-        if (cropBtnGroup) canvas.remove(cropBtnGroup);
         cropRect = null;
-        cropBtnGroup = null;
+        document.getElementById('crop-action-bar').style.display = 'none';
+        document.getElementById('dark-crop-overlay').style.display = 'none';
         canvas.renderAll();
     }
 
@@ -258,9 +274,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 canvas.selection = false;
                 canvas.discardActiveObject();
                 
-                // Initialize Crop Rect to viewport area
+                document.getElementById('crop-action-bar').style.display = 'flex';
+                document.getElementById('dark-crop-overlay').style.display = 'block';
+                
                 const container = document.getElementById('canvas-container-outer');
-                // We want the crop rect to be visible in the current scrolled area
                 const scrollLeft = container.scrollLeft;
                 const scrollTop = container.scrollTop;
                 
@@ -274,29 +291,33 @@ document.addEventListener('DOMContentLoaded', async () => {
                     top: (scrollTop / currentZoom) + ((container.clientHeight / currentZoom) - h) / 2,
                     width: w,
                     height: h,
-                    fill: 'rgba(0, 122, 255, 0.1)',
-                    stroke: '#007AFF',
-                    strokeDashArray: [5, 5],
-                    strokeWidth: 2,
+                    fill: 'transparent',
+                    stroke: 'transparent',
+                    strokeWidth: 0,
+                    hasBorders: false,
                     cornerColor: 'white',
-                    cornerStrokeColor: '#007AFF',
+                    cornerStrokeColor: 'rgba(0,0,0,0.2)',
                     transparentCorners: false,
                     cornerSize: 12 / currentZoom,
+                    cornerStyle: 'rect',
                     selectable: true,
                     evented: true
                 });
                 
-                // Keep inside bounds
                 cropRect.on('moving', function() {
                     if (this.left < 0) this.left = 0;
                     if (this.top < 0) this.top = 0;
                     if (this.left + this.width * this.scaleX > cw) this.left = cw - this.width * this.scaleX;
                     if (this.top + this.height * this.scaleY > ch) this.top = ch - this.height * this.scaleY;
+                    syncCropOverlay();
                 });
                 
+                cropRect.on('scaling', syncCropOverlay);
+
                 canvas.add(cropRect);
                 canvas.setActiveObject(cropRect);
                 canvas.renderAll();
+                syncCropOverlay();
                 
             } else {
                 canvas.isDrawingMode = false;
@@ -325,61 +346,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // Custom HTML Crop Overlay removed, using Fabric logic
-    const htmlCropOverlay = document.getElementById('crop-overlay');
-    if (htmlCropOverlay) htmlCropOverlay.remove();
-    
-    // Add floating crop apply button to HTML
-    const floatBtnContainer = document.createElement('div');
-    floatBtnContainer.style.display = 'none';
-    floatBtnContainer.style.position = 'fixed';
-    floatBtnContainer.style.zIndex = '100';
-    floatBtnContainer.style.background = 'white';
-    floatBtnContainer.style.padding = '8px';
-    floatBtnContainer.style.borderRadius = '24px';
-    floatBtnContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
-    floatBtnContainer.style.gap = '8px';
-    
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.style.padding = '6px 16px';
-    cancelBtn.style.border = '1px solid #ccc';
-    cancelBtn.style.background = 'transparent';
-    cancelBtn.style.borderRadius = '16px';
-    cancelBtn.style.cursor = 'pointer';
-    
-    const applyBtn = document.createElement('button');
-    applyBtn.textContent = 'Apply crop';
-    applyBtn.style.padding = '6px 16px';
-    applyBtn.style.border = 'none';
-    applyBtn.style.background = '#1d1d1f';
-    applyBtn.style.color = 'white';
-    applyBtn.style.borderRadius = '16px';
-    applyBtn.style.cursor = 'pointer';
-    
-    floatBtnContainer.appendChild(cancelBtn);
-    floatBtnContainer.appendChild(applyBtn);
-    document.body.appendChild(floatBtnContainer);
-
-    // Make crop buttons follow the crop rect
-    setInterval(() => {
-        if (activeTool === 'Crop' && cropRect) {
-            floatBtnContainer.style.display = 'flex';
-            const rect = document.getElementById('canvas-container-outer').getBoundingClientRect();
-            // We just center it at bottom of viewport for simplicity and reliability
-            floatBtnContainer.style.bottom = '80px';
-            floatBtnContainer.style.left = '50%';
-            floatBtnContainer.style.transform = 'translateX(-50%)';
-        } else {
-            floatBtnContainer.style.display = 'none';
-        }
-    }, 100);
-
-    cancelBtn.addEventListener('click', () => {
+    document.getElementById('btn-cancel-crop').addEventListener('click', () => {
         document.querySelector('.tool-btn[title="Pointer"]').click();
     });
 
-    applyBtn.addEventListener('click', () => {
+    document.getElementById('btn-apply-crop').addEventListener('click', () => {
         if (!cropRect) return;
         
         // Restore zoom temporarily for clean crop
