@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumina - Editor</title>
+    <style>
+        :root {
+            /* Light mode variables */
+            --bg-color: #f5f5f7;
+            --toolbar-bg: #ffffff;
+            --sidebar-bg: #ffffff;
+            --text-main: #1d1d1f;
+            --text-muted: #86868b;
+            --border-color: rgba(128, 128, 128, 0.2);
+            
+            --tool-hover: #f5f5f7;
+            --tool-active-bg: #1d1d1f;
+            --tool-active-color: #ffffff;
+        }
+
+        body.dark-mode {
+            --bg-color: #000000;
+            --toolbar-bg: #1c1c1e;
+            --sidebar-bg: #1c1c1e;
+            --text-main: #f5f5f7;
+            --text-muted: #a1a1a6;
+            --border-color: #38383a;
+            
+            --tool-hover: #2c2c2e;
+            --tool-active-bg: #ffffff;
+            --tool-active-color: #1c1c1e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Top Toolbar */
+        .top-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--toolbar-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 10px 20px;
+            height: 56px;
+            z-index: 10;
+        }
+
+        .toolbar-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toolbar-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background 0.2s ease;
+        }
+
+        .icon-btn:hover {
+            background: var(--tool-hover);
+        }
+
+        .icon-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 2;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left Sidebar (Tools) */
+        .left-sidebar {
+            width: 64px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 0;
+            gap: 12px;
+            overflow-y: auto;
+        }
+
+        .tool-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tool-btn:hover {
+            background: var(--tool-hover);
+        }
+
+        .tool-btn.active {
+            background: var(--tool-active-bg);
+            color: var(--tool-active-color);
+        }
+
+        .tool-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 1.5;
+        }
+
+        /* Swatches & Controls */
+        .color-swatch, .fill-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            position: relative;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .color-swatch.active::after, .fill-swatch.active::after {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: -4px;
+            right: -4px;
+            bottom: -4px;
+            border: 2px solid var(--text-main);
+            border-radius: 50%;
+        }
+        .fill-swatch.no-fill {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+        }
+        
+        .toggle-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .toggle-btn.active {
+            background: var(--text-main);
+            color: var(--bg-color);
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            background: var(--border-color);
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--text-main);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        /* Canvas Area */
+        .canvas-container {
+            flex: 1;
+            background: var(--bg-color);
+            position: relative;
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        #main-canvas {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-toolbar">
+        <div class="toolbar-section left">
+            <button class="icon-btn" id="btn-back" title="Back">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
+            </button>
+            <span class="toolbar-title">Markup</span>
+            <button class="icon-btn" id="btn-undo" title="Undo">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                </svg>
+            </button>
+            <button class="icon-btn" id="btn-redo" title="Redo" style="opacity: 0.3;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0-6-6m6 6H9a6 6 0 0 0 0 12h3" />
+                </svg>
+            </button>
+        </div>
+        
+        <!-- Center Toolbar (Zoom) -->
+        <div class="toolbar-section center" style="display: flex; background: var(--bg-color); border-radius: 20px; padding: 4px 12px; border: 1px solid var(--border-color); font-size: 13px; font-weight: 500;">
+            <button class="icon-btn" style="padding: 4px;" title="Zoom Out">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM13.5 10.5h-6" />
+                </svg>
+            </button>
+            <span style="min-width: 48px; text-align: center; line-height: 24px;">75%</span>
+            <button class="icon-btn" style="padding: 4px;" title="Zoom In">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
+                </svg>
+            </button>
+            <button class="icon-btn" style="padding: 4px; margin-left: 8px;" title="Fit to Screen">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                </svg>
+            </button>
+        </div>
+        
+        <!-- Right Toolbar -->
+        <div class="toolbar-section right" style="display: flex; gap: 8px;">
+            <button class="icon-btn" style="border: 1px solid var(--border-color); border-radius: 20px; padding: 6px 16px; font-size: 13px; font-weight: 500; font-family: inherit;">
+                Copy
+            </button>
+            <button class="icon-btn" style="border: 1px solid var(--border-color); border-radius: 20px; padding: 6px 16px; font-size: 13px; font-weight: 500; font-family: inherit; display: flex; align-items: center; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                </svg>
+                PDF
+            </button>
+            <button class="icon-btn" style="background: #1d1d1f; color: white; border-radius: 20px; padding: 6px 16px; font-size: 13px; font-weight: 500; font-family: inherit; display: flex; align-items: center; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;stroke-width:2.5;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Save image
+            </button>
+            <button class="icon-btn" style="padding: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="workspace">
+        <div class="left-sidebar">
+            <!-- Pointer (Active) -->
+            <button class="tool-btn active" title="Pointer">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
+                </svg>
+            </button>
+            <!-- Crop -->
+            <button class="tool-btn" title="Crop">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v12m-6-6H6V6m12 12v-6m-6 6v6m0-6H6" />
+                </svg>
+            </button>
+            <!-- Rectangle -->
+            <button class="tool-btn" title="Rectangle">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <!-- Circle -->
+            <button class="tool-btn" title="Circle">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <circle cx="12" cy="12" r="8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <!-- Arrow -->
+            <button class="tool-btn" title="Arrow">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                </svg>
+            </button>
+            <!-- Line -->
+            <button class="tool-btn" title="Line">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 19L19 5" />
+                </svg>
+            </button>
+            <!-- Text -->
+            <button class="tool-btn" title="Text">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M12 7v12M9 19h6" />
+                </svg>
+            </button>
+            <!-- Highlight -->
+            <button class="tool-btn" title="Highlight">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+            </button>
+            <!-- Blur/Hide -->
+            <button class="tool-btn" title="Hide/Blur">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                </svg>
+            </button>
+            <!-- Focus/Target -->
+            <button class="tool-btn" title="Focus">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 12a5 5 0 1 1 10 0 5 5 0 0 1-10 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3" />
+                </svg>
+            </button>
+            <!-- Pen -->
+            <button class="tool-btn" title="Pen">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 3l5 5-11 11H5v-5L16 3z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l5 5" />
+                </svg>
+            </button>
+            <!-- Brush -->
+            <button class="tool-btn" title="Brush">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.879-3.879a3 3 0 10-4.242-4.242l-3.879 3.879a15.996 15.996 0 00-4.648 4.764z" />
+                </svg>
+            </button>
+        </div>
+        
+        <!-- Canvas Area -->
+        <div class="canvas-container" style="flex: 1; background: var(--bg-color); position: relative; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 40px; transform-origin: center center;" id="canvas-container-outer">
+            <div id="image-wrapper" style="position: relative; box-shadow: 0 8px 30px rgba(0,0,0,0.12); border-radius: 8px; transition: transform 0.2s ease;">
+                <canvas id="main-canvas"></canvas>
+                
+                <!-- Crop Overlay -->
+                <div id="crop-overlay" style="display: none; position: absolute; top: 10%; left: 10%; right: 10%; bottom: 10%; box-shadow: 0 0 0 9999px rgba(0,0,0,0.6); border: 2px dashed #007AFF; z-index: 10; pointer-events: auto;">
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; top: -6px; left: -6px; cursor: nwse-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; top: -6px; right: -6px; cursor: nesw-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; bottom: -6px; left: -6px; cursor: nesw-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; bottom: -6px; right: -6px; cursor: nwse-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; top: 50%; left: -6px; transform: translateY(-50%); cursor: ew-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; top: 50%; right: -6px; transform: translateY(-50%); cursor: ew-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize;"></div>
+                    <div style="position: absolute; width: 12px; height: 12px; background: white; border: 2px solid #007AFF; bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize;"></div>
+                    
+                    <div style="position: absolute; bottom: -52px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; background: white; padding: 6px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <button id="btn-cancel-crop" style="border: 1px solid var(--border-color); background: transparent; padding: 6px 16px; border-radius: 16px; font-weight: 500; font-size: 13px; cursor: pointer; color: var(--text-main);">Cancel</button>
+                        <button id="btn-apply-crop" style="background: #1d1d1f; color: white; border: none; padding: 6px 16px; border-radius: 16px; font-weight: 500; font-size: 13px; cursor: pointer;">Apply crop</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Sidebar (Properties) -->
+        <div class="right-sidebar" style="width: 260px; background: var(--sidebar-bg); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;">
+            
+            <!-- Default State -->
+            <div id="rs-default" style="padding: 20px; border-bottom: 1px solid var(--border-color);">
+                <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">Select an object<br>to edit its style.</p>
+            </div>
+
+            <!-- Properties Panel (Hidden by default) -->
+            <div id="rs-properties" style="display: none; flex-direction: column; padding: 20px; border-bottom: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+                    <div id="rs-prop-icon"></div>
+                    <h3 id="rs-prop-title" style="font-size: 14px; font-weight: 600;">Tool</h3>
+                </div>
+
+                <!-- Color -->
+                <div id="rs-color-section" style="margin-bottom: 20px;">
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Color</label>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="color-swatch active" style="background: #000000;"></button>
+                        <button class="color-swatch" style="background: #FF3B30;"></button>
+                        <button class="color-swatch" style="background: #FFCC00;"></button>
+                        <button class="color-swatch" style="background: #34C759;"></button>
+                        <button class="color-swatch" style="background: #8E8E93;"></button>
+                        <button class="color-swatch" style="background: conic-gradient(red, yellow, green, cyan, blue, magenta, red);"></button>
+                    </div>
+                </div>
+
+                <!-- Thickness -->
+                <div id="rs-thickness-section" style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Thickness</label>
+                        <span id="rs-thickness-val" style="font-size: 11px; font-weight: 600;">4 px</span>
+                    </div>
+                    <input type="range" id="rs-thickness-slider" min="1" max="20" value="4" style="width: 100%;">
+                </div>
+
+                <!-- Fill -->
+                <div id="rs-fill-section" style="margin-bottom: 20px;">
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Fill</label>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="fill-swatch active no-fill" title="No Fill">
+                            <svg viewBox="0 0 24 24" stroke="red" stroke-width="2" style="width: 100%; height: 100%;"><line x1="2" y1="22" x2="22" y2="2"/></svg>
+                        </button>
+                        <button class="fill-swatch" style="background: #000000;"></button>
+                        <button class="fill-swatch" style="background: #FF3B30;"></button>
+                        <button class="fill-swatch" style="background: #FFCC00;"></button>
+                        <button class="fill-swatch" style="background: #34C759;"></button>
+                        <button class="fill-swatch" style="background: #FFFFFF; border: 1px solid var(--border-color);"></button>
+                    </div>
+                </div>
+
+                <!-- Corner Radius -->
+                <div id="rs-radius-section" style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Corner Radius</label>
+                        <span id="rs-radius-val" style="font-size: 11px; font-weight: 600;">0 px</span>
+                    </div>
+                    <input type="range" id="rs-radius-slider" min="0" max="50" value="0" style="width: 100%;">
+                </div>
+
+                <!-- Arrowheads -->
+                <div id="rs-arrowheads-section" style="margin-bottom: 20px; display: none;">
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Arrowheads</label>
+                    <div style="display: flex; background: var(--bg-color); border-radius: 6px; padding: 2px;">
+                        <button class="toggle-btn active" style="flex: 1; font-size: 12px; padding: 6px 0;">One end</button>
+                        <button class="toggle-btn" style="flex: 1; font-size: 12px; padding: 6px 0;">Both</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Objects List -->
+            <div style="padding: 20px; flex: 1; display: flex; flex-direction: column;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 16px; height: 16px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h1.5M3.75 6v1.5m2.25-2.25h1.5m-1.5 0v1.5m-3.75 12A2.25 2.25 0 0 0 6 20.25h1.5M3.75 18v-1.5m2.25 2.25h1.5m-1.5 0v-1.5m10.5-12A2.25 2.25 0 0 1 18 3.75h-1.5M20.25 6v1.5m-2.25-2.25h-1.5m1.5 0v1.5m3.75 12A2.25 2.25 0 0 0 18 20.25h-1.5m2.25-2.25v-1.5m-2.25 2.25h-1.5m1.5 0v-1.5" />
+                        </svg>
+                        <h3 style="font-size: 14px; font-weight: 600;">Objects</h3>
+                    </div>
+                    <span id="rs-objects-count" style="font-size: 12px; font-weight: 600;"></span>
+                </div>
+                
+                <div id="rs-objects-list" style="flex: 1; display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Objects will be populated via JS -->
+                </div>
+
+                <div id="rs-objects-empty" style="flex: 1; display: flex; align-items: flex-end; padding-bottom: 20px;">
+                    <p style="font-size: 12px; color: var(--text-muted);">Nothing yet. Pick a tool from the rail.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bottom Bar (Status) -->
+    <div class="bottom-bar" style="height: 32px; border-top: 1px solid var(--border-color); background: var(--toolbar-bg); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 12px; color: var(--text-muted);">
+        <span>2940 x 9182 px</span>
+        <span style="display: flex; align-items: center; justify-content: center; width: 32px; height: 6px; background: var(--border-color); border-radius: 4px;"></span>
+        <span>https://www.coursera.org/specializations/mathematics-machine-learning</span>
+    </div>
+    
+    <script src="fabric.min.js"></script>
+    <script src="editor.js"></script>
+</body>
+</html>
