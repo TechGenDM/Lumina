@@ -237,6 +237,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 50);
     });
 
+    // Edit Action
+    const btnEdit = document.getElementById('edit-btn');
+    if (btnEdit) {
+        btnEdit.addEventListener('click', async () => {
+            if (imageDataUrl) {
+                // Save the image back to storage so the editor can load it
+                await chrome.storage.local.set({ screenshotData: imageDataUrl });
+                window.location.href = 'editor.html';
+            }
+        });
+    }
+
     // --- REPORT ISSUE MODAL LOGIC ---
     const btnReportIssue = document.getElementById('report-issue-btn');
     const reportModal = document.getElementById('report-modal');
