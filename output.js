@@ -236,4 +236,55 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }, 50);
     });
+
+    // --- REPORT ISSUE MODAL LOGIC ---
+    const btnReportIssue = document.getElementById('report-issue-btn');
+    const reportModal = document.getElementById('report-modal');
+    const cancelReport = document.getElementById('cancel-report');
+    const sendReport = document.getElementById('send-report');
+    const issueDescription = document.getElementById('issue-description');
+
+    if (btnReportIssue) {
+        btnReportIssue.addEventListener('click', () => {
+            reportModal.style.display = 'flex';
+            // Small delay to allow display:flex to apply before adding transition class
+            setTimeout(() => {
+                reportModal.classList.add('show');
+                issueDescription.focus();
+            }, 10);
+        });
+    }
+
+    function closeReportModal() {
+        reportModal.classList.remove('show');
+        setTimeout(() => {
+            reportModal.style.display = 'none';
+            issueDescription.value = '';
+        }, 200);
+    }
+
+    if (cancelReport) {
+        cancelReport.addEventListener('click', closeReportModal);
+    }
+
+    if (reportModal) {
+        reportModal.addEventListener('click', (e) => {
+            if (e.target === reportModal) {
+                closeReportModal();
+            }
+        });
+    }
+
+    if (sendReport) {
+        sendReport.addEventListener('click', () => {
+            const description = issueDescription.value.trim();
+            const email = 'devasishmishra74@gmail.com';
+            const subject = encodeURIComponent('Lumina Extension Issue Report');
+            const body = encodeURIComponent(description);
+            const mailtoUrl = `mailto:${email}?subject=${subject}&body=${body}`;
+            
+            window.location.href = mailtoUrl;
+            closeReportModal();
+        });
+    }
 });
