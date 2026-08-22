@@ -278,17 +278,38 @@ document.addEventListener('DOMContentLoaded', async () => {
                 document.getElementById('dark-crop-overlay').style.display = 'block';
                 
                 const container = document.getElementById('canvas-container-outer');
-                const scrollLeft = container.scrollLeft;
-                const scrollTop = container.scrollTop;
-                
-                const w = Math.min(canvas.backgroundImage.width * 0.8, (container.clientWidth * 0.8) / currentZoom);
-                const h = Math.min(canvas.backgroundImage.height * 0.8, (container.clientHeight * 0.8) / currentZoom);
+                const wrapper = document.getElementById('image-wrapper');
                 const cw = canvas.backgroundImage.width;
                 const ch = canvas.backgroundImage.height;
                 
+                const cRect = container.getBoundingClientRect();
+                const wRect = wrapper.getBoundingClientRect();
+                
+                const screenCenterX = cRect.left + cRect.width / 2;
+                const screenCenterY = cRect.top + cRect.height / 2;
+                
+                let relativeX = screenCenterX - wRect.left;
+                let relativeY = screenCenterY - wRect.top;
+                
+                if (relativeX < 0 || relativeX > wRect.width) relativeX = wRect.width / 2;
+                if (relativeY < 0 || relativeY > wRect.height) relativeY = wRect.height / 2;
+
+                const fabricCenterX = relativeX / currentZoom;
+                const fabricCenterY = relativeY / currentZoom;
+
+                const w = Math.min(cw * 0.8, (cRect.width * 0.8) / currentZoom);
+                const h = Math.min(ch * 0.8, (cRect.height * 0.8) / currentZoom);
+                
+                let startX = fabricCenterX - w / 2;
+                let startY = fabricCenterY - h / 2;
+                if (startX < 0) startX = 0;
+                if (startY < 0) startY = 0;
+                if (startX + w > cw) startX = cw - w;
+                if (startY + h > ch) startY = ch - h;
+                
                 cropRect = new fabric.Rect({
-                    left: (scrollLeft / currentZoom) + ((container.clientWidth / currentZoom) - w) / 2,
-                    top: (scrollTop / currentZoom) + ((container.clientHeight / currentZoom) - h) / 2,
+                    left: startX,
+                    top: startY,
                     width: w,
                     height: h,
                     fill: 'transparent',
