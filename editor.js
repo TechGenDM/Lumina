@@ -1,664 +1,1172 @@
+// editor.js
+
+// 1. Define custom Fabric classes BEFORE the DOMContentLoaded handler
+fabric.Arrow = fabric.util.createClass(fabric.Line, {
+  type: 'arrow',
+  initialize: function(points, options) {
+    options || (options = {});
+    this.callSuper('initialize', points, options);
+  },
+  _render: function(ctx) {
+    this.callSuper('_render', ctx);
+    if (this.width === 0 && this.height === 0) return;
+    ctx.save();
+    var xDiff = this.x2 - this.x1;
+    var yDiff = this.y2 - this.y1;
+    var angle = Math.atan2(yDiff, xDiff);
+    var p = this.calcLinePoints();
+    ctx.translate(p.x2, p.y2);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    var headlen = Math.max(10, this.strokeWidth * 3);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-headlen, headlen / 2);
+    ctx.lineTo(-headlen, -headlen / 2);
+    ctx.closePath();
+    ctx.fillStyle = this.stroke;
+    ctx.fill();
+    ctx.restore();
+  },
+  toObject: function(propertiesToInclude) {
+    return this.callSuper('toObject', ['type'].concat(propertiesToInclude));
+  }
+});
+fabric.Arrow.fromObject = function(object, callback) {
+  callback && callback(new fabric.Arrow([object.x1, object.y1, object.x2, object.y2], object));
+};
+
+fabric.NumberMarker = fabric.util.createClass(fabric.Group, {
+  type: 'numberMarker',
+  initialize: function(options) {
+    options || (options = {});
+    const radius = options.radius || 15;
+    const text = options.text || '1';
+    
+    const circle = new fabric.Circle({
+      radius: radius,
+      fill: options.fill || '#FF3B30',
+      originX: 'center',
+      originY: 'center',
+      stroke: options.stroke || null,
+      strokeWidth: options.strokeWidth || 0
+    });
+    
+    const textObj = new fabric.Text(text, {
+      fontSize: radius * 1.2,
+      fill: '#ffffff',
+      originX: 'center',
+      originY: 'center',
+      fontFamily: 'Arial',
+      fontWeight: 'bold'
+    });
+    
+    this.callSuper('initialize', [circle, textObj], options);
+    this.markerNumber = parseInt(text);
+  },
+  toObject: function(propertiesToInclude) {
+    return this.callSuper('toObject', ['type', 'markerNumber', 'radius'].concat(propertiesToInclude));
+  }
+});
+fabric.NumberMarker.fromObject = function(object, callback) {
+  const options = { ...object };
+  if (object.objects && object.objects.length > 0) {
+    options.fill = object.objects[0].fill;
+    options.radius = object.objects[0].radius;
+    options.text = object.objects[1].text;
+    options.stroke = object.objects[0].stroke;
+    options.strokeWidth = object.objects[0].strokeWidth;
+  }
+  callback && callback(new fabric.NumberMarker(options));
+};
+
+let globalMarkerCounter = 1;
+let bgImageElement = null;
+
+function generateFilterRegionDataURL(rect, type, bgImg) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+
+  if (type === 'Blur') {
+    ctx.filter = 'blur(8px)';
+    ctx.drawImage(bgImg, rect.left - 8, rect.top - 8, rect.width + 16, rect.height + 16, -8, -8, rect.width + 16, rect.height + 16);
+  } else if (type === 'Pixelate') {
+    const block = 10;
+    const w = rect.width;
+    const h = rect.height;
+    ctx.drawImage(bgImg, rect.left, rect.top, w, h, 0, 0, w / block, h / block);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(canvas, 0, 0, w / block, h / block, 0, 0, w, h);
+  }
+  return canvas.toDataURL('image/png');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Theme initialization
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.body.classList.add('dark-mode');
+  // Theme
+  if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.body.classList.add('dark-mode');
+  }
+
+  // Canvas Init
+  const canvasContainerOuter = document.getElementById('canvas-container-outer');
+  const canvas = new fabric.Canvas('main-canvas', {
+    isDrawingMode: false,
+    selection: true,
+    preserveObjectStacking: true,
+    fireRightClick: true,
+    stopContextMenu: true
+  });
+
+  function resizeCanvas() {
+    canvas.setWidth(canvasContainerOuter.clientWidth);
+    canvas.setHeight(canvasContainerOuter.clientHeight);
+    canvas.renderAll();
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // Zoom System
+  let currentZoom = 1;
+  const zoomText = document.getElementById('zoom-percentage');
+  
+  function updateZoomUI() {
+    const zt = document.querySelector('.toolbar-section.center span');
+    if(zt) zt.innerText = Math.round(canvas.getZoom() * 100) + '%';
+  }
+
+  function setZoom(scale, point) {
+    canvas.zoomToPoint(point, scale);
+    updateZoomUI();
+  }
+
+  function setZoomToFit() {
+    if (!canvas.backgroundImage) return;
+    const padding = 80;
+    const bg = canvas.backgroundImage;
+    const scaleX = (canvas.width - padding * 2) / bg.width;
+    const scaleY = (canvas.height - padding * 2) / bg.height;
+    const scale = Math.min(scaleX, scaleY, 1);
+    
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    const center = canvas.getCenter();
+    canvas.zoomToPoint(new fabric.Point(center.left, center.top), scale);
+    
+    const vpt = canvas.viewportTransform;
+    vpt[4] = (canvas.width - bg.width * scale) / 2;
+    vpt[5] = (canvas.height - bg.height * scale) / 2;
+    canvas.requestRenderAll();
+    updateZoomUI();
+  }
+
+  document.querySelector('button[title="Zoom In"]')?.addEventListener('click', () => setZoom(canvas.getZoom() * 1.1, canvas.getVpCenter()));
+  document.querySelector('button[title="Zoom Out"]')?.addEventListener('click', () => setZoom(canvas.getZoom() / 1.1, canvas.getVpCenter()));
+  document.querySelector('button[title="Fit to Screen"]')?.addEventListener('click', setZoomToFit);
+
+  // Panning & Mouse Wheel
+  let isDraggingCanvas = false;
+  let lastPosX, lastPosY;
+  let isSpaceDown = false;
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      isSpaceDown = true;
+      canvas.defaultCursor = 'grab';
+    }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.code === 'Space') {
+      isSpaceDown = false;
+      canvas.defaultCursor = activeTool === 'Pointer' ? 'default' : 'crosshair';
+    }
+  });
+
+  canvas.on('mouse:down', function(opt) {
+    const evt = opt.e;
+    if (isSpaceDown || evt.button === 1) { // Middle click or Space + Left click
+      isDraggingCanvas = true;
+      canvas.selection = false;
+      lastPosX = evt.clientX;
+      lastPosY = evt.clientY;
+    }
+  });
+
+  canvas.on('mouse:move', function(opt) {
+    if (isDraggingCanvas) {
+      const e = opt.e;
+      const vpt = this.viewportTransform;
+      vpt[4] += e.clientX - lastPosX;
+      vpt[5] += e.clientY - lastPosY;
+      this.requestRenderAll();
+      lastPosX = e.clientX;
+      lastPosY = e.clientY;
+      if(cropRect) syncCropOverlay();
+    }
+  });
+
+  canvas.on('mouse:up', function(opt) {
+    if (isDraggingCanvas) {
+      this.setViewportTransform(this.viewportTransform);
+      isDraggingCanvas = false;
+      canvas.selection = activeTool === 'Pointer';
+    }
+  });
+
+  canvas.on('mouse:wheel', function(opt) {
+    const delta = opt.e.deltaY;
+    if (opt.e.ctrlKey) {
+      let zoom = canvas.getZoom();
+      zoom *= 0.999 ** delta;
+      if (zoom > 20) zoom = 20;
+      if (zoom < 0.01) zoom = 0.01;
+      setZoom(zoom, { x: opt.e.offsetX, y: opt.e.offsetY });
+    } else {
+      const vpt = this.viewportTransform;
+      vpt[4] -= opt.e.deltaX;
+      vpt[5] -= opt.e.deltaY;
+      this.requestRenderAll();
+      if(cropRect) syncCropOverlay();
+    }
+    opt.e.preventDefault();
+    opt.e.stopPropagation();
+  });
+
+  // State Variables
+  let activeTool = 'Pointer';
+  let currentColor = '#FF3B30';
+  let currentFill = 'transparent';
+  let currentThickness = 4;
+  let cropRect = null;
+
+  // History
+  let history = [];
+  let historyIndex = -1;
+  let isHistoryAction = false;
+
+  function saveHistory() {
+    if (isHistoryAction) return;
+    const json = canvas.toJSON(['selectable', 'evented', 'type', 'name', 'filterType', 'markerNumber', 'radius']);
+    history.splice(historyIndex + 1);
+    history.push(json);
+    historyIndex = history.length - 1;
+    updateObjectsList();
+  }
+
+  function doUndo() {
+    if (historyIndex > 0) {
+      isHistoryAction = true;
+      historyIndex--;
+      canvas.loadFromJSON(history[historyIndex], () => {
+        canvas.renderAll();
+        isHistoryAction = false;
+        updateObjectsList();
+      });
+    }
+  }
+
+  function doRedo() {
+    if (historyIndex < history.length - 1) {
+      isHistoryAction = true;
+      historyIndex++;
+      canvas.loadFromJSON(history[historyIndex], () => {
+        canvas.renderAll();
+        isHistoryAction = false;
+        updateObjectsList();
+      });
+    }
+  }
+
+  document.getElementById('btn-undo')?.addEventListener('click', doUndo);
+  document.getElementById('btn-redo')?.addEventListener('click', doRedo);
+
+  canvas.on('object:modified', saveHistory);
+  canvas.on('path:created', saveHistory);
+
+  // Back Button
+  document.getElementById('btn-back')?.addEventListener('click', async () => {
+    const origVpt = canvas.viewportTransform;
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    if (canvas.backgroundImage) {
+      canvas.setWidth(canvas.backgroundImage.width);
+      canvas.setHeight(canvas.backgroundImage.height);
+    }
+    canvas.discardActiveObject();
+    if(cropRect) cropRect.visible = false;
+    canvas.renderAll();
+    
+    const dataURL = canvas.toDataURL({ format: 'png' });
+    
+    // Restore
+    resizeCanvas();
+    canvas.setViewportTransform(origVpt);
+    if(cropRect) cropRect.visible = true;
+    canvas.renderAll();
+
+    await chrome.storage.local.set({ screenshotData: dataURL });
+    window.location.href = 'output.html';
+  });
+
+  // Load Image
+  chrome.storage.local.get('screenshotData', (data) => {
+    if (data.screenshotData) {
+      fabric.Image.fromURL(data.screenshotData, (img) => {
+        bgImageElement = img.getElement();
+        img.set({ selectable: false, evented: false });
+        canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+        setZoomToFit();
+        saveHistory();
+        
+        // Bottom bar text
+        const dims = document.querySelectorAll('.bottom-bar span');
+        if(dims.length > 0) dims[0].innerText = `${img.width} × ${img.height}`;
+      });
+    }
+  });
+
+  // Crop System
+  const cropOverlay = document.getElementById('dark-crop-overlay');
+  const cropPill = document.getElementById('crop-dimension-pill');
+  const cropActionBar = document.getElementById('crop-action-bar');
+  let cropRatio = null;
+
+  function syncCropOverlay() {
+    if (!cropRect) return;
+    cropRect.setCoords();
+    const zoom = canvas.getZoom();
+    const vpt = canvas.viewportTransform;
+    
+    // Get the crop rect's logical coordinates
+    const left = cropRect.left;
+    const top = cropRect.top;
+    const width = cropRect.getScaledWidth();
+    const height = cropRect.getScaledHeight();
+    
+    // Transform to screen coordinates within the canvas element
+    const screenLeft = left * zoom + vpt[4];
+    const screenTop = top * zoom + vpt[5];
+    const screenWidth = width * zoom;
+    const screenHeight = height * zoom;
+
+    cropOverlay.style.left = `${screenLeft}px`;
+    cropOverlay.style.top = `${screenTop}px`;
+    cropOverlay.style.width = `${screenWidth}px`;
+    cropOverlay.style.height = `${screenHeight}px`;
+    cropOverlay.style.display = 'block';
+
+    // Dimension pill positioned inside the overlay
+    cropPill.innerText = `${Math.round(width)} × ${Math.round(height)}`;
+    cropPill.style.display = 'block';
+  }
+
+  function cleanupCrop() {
+    if (cropRect) {
+      canvas.remove(cropRect);
+      cropRect = null;
+    }
+    cropOverlay.style.display = 'none';
+    cropPill.style.display = 'none';
+    cropActionBar.style.display = 'none';
+  }
+
+  function setTool(toolName) {
+    document.querySelectorAll('.left-sidebar .tool-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.left-sidebar .tool-btn[data-tool="${toolName}"]`);
+    if(btn) btn.classList.add('active');
+    
+    activeTool = toolName;
+    cleanupCrop();
+    canvas.discardActiveObject();
+    
+    canvas.isDrawingMode = (toolName === 'Pen' || toolName === 'Highlight');
+    canvas.selection = (toolName === 'Pointer');
+    canvas.defaultCursor = (toolName === 'Pointer') ? 'default' : (canvas.isDrawingMode ? 'default' : 'crosshair');
+    
+    if (toolName === 'Pen') {
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.freeDrawingBrush.color = currentColor;
+      canvas.freeDrawingBrush.width = currentThickness;
+    } else if (toolName === 'Highlight') {
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.freeDrawingBrush.color = new fabric.Color(currentColor).setAlpha(0.4).toRgba();
+      canvas.freeDrawingBrush.width = Math.max(20, currentThickness * 4);
+      canvas.freeDrawingBrush.strokeLineCap = 'round';
     }
 
-    // Init Canvas
-    let canvas = new fabric.Canvas('main-canvas', {
-        isDrawingMode: false,
-        selection: true
+    const objects = canvas.getObjects();
+    objects.forEach(obj => {
+      obj.set({
+        selectable: (toolName === 'Pointer'),
+        evented: (toolName === 'Pointer')
+      });
     });
+
+    if (toolName === 'Crop') {
+      const bg = canvas.backgroundImage;
+      if (!bg) return;
+      const cw = bg.width * 0.8;
+      const ch = bg.height * 0.8;
+      cropRect = new fabric.Rect({
+        left: bg.width / 2 - cw / 2,
+        top: bg.height / 2 - ch / 2,
+        width: cw,
+        height: ch,
+        fill: 'transparent',
+        stroke: '#007AFF',
+        strokeWidth: 2,
+        strokeDashArray: [5, 5],
+        cornerColor: '#007AFF',
+        transparentCorners: false,
+        selectable: true,
+        evented: true,
+        hasRotatingPoint: false
+      });
+      canvas.add(cropRect);
+      canvas.setActiveObject(cropRect);
+      cropOverlay.style.display = 'block';
+      cropPill.style.display = 'block';
+      cropActionBar.style.display = 'flex';
+      syncCropOverlay();
+    }
     
-    // Save/Back logic
-    const btnBack = document.getElementById('btn-back');
-    if (btnBack) {
-        btnBack.addEventListener('click', () => {
-            // Restore zoom to 1 to capture properly
-            const origZoom = currentZoom;
-            canvas.setZoom(1);
-            if (canvas.backgroundImage) {
-                canvas.setWidth(canvas.backgroundImage.width);
-                canvas.setHeight(canvas.backgroundImage.height);
-            }
-            
-            const dataUrl = canvas.toDataURL({ format: 'png' });
-            chrome.storage.local.set({ screenshotData: dataUrl }, () => {
-                window.location.href = 'output.html';
-            });
+    canvas.requestRenderAll();
+  }
+
+  document.querySelectorAll('.left-sidebar .tool-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setTool(btn.getAttribute('data-tool'));
+    });
+  });
+
+  document.querySelectorAll('.crop-aspect-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.crop-aspect-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      const aspect = e.target.getAttribute('data-aspect');
+      if (!cropRect) return;
+      if (aspect === 'free') {
+        cropRatio = null;
+        cropRect.set({ lockUniScaling: false });
+      } else {
+        const [w, h] = aspect.split(':').map(Number);
+        cropRatio = w / h;
+        const currentH = cropRect.getScaledHeight();
+        cropRect.set({ 
+          width: currentH * cropRatio,
+          scaleX: 1,
+          lockUniScaling: true 
         });
-    }
-
-    // Canvas container zooming
-    const imageWrapper = document.getElementById('image-wrapper');
-    const zoomText = document.querySelector('.toolbar-section.center span');
-    let currentZoom = 1.0;
-    
-    function setZoom(scale) {
-        currentZoom = scale;
-        if (canvas && canvas.backgroundImage) {
-            canvas.setZoom(currentZoom);
-            canvas.setWidth(canvas.backgroundImage.width * currentZoom);
-            canvas.setHeight(canvas.backgroundImage.height * currentZoom);
-        }
-        if (zoomText) zoomText.textContent = Math.round(currentZoom * 100) + '%';
-    }
-    
-    function setZoomToFit() {
-        const container = document.getElementById('canvas-container-outer');
-        if (container && canvas.backgroundImage) {
-            const padding = 80;
-            const scaleX = (container.clientWidth - padding) / canvas.backgroundImage.width;
-            const scaleY = (container.clientHeight - padding) / canvas.backgroundImage.height;
-            const scaleToFit = Math.min(scaleX, scaleY, 1); // Don't scale up past 100%
-            setZoom(scaleToFit);
-        }
-    }
-
-    const zoomOutBtn = document.querySelector('button[title="Zoom Out"]');
-    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => setZoom(Math.max(0.05, currentZoom - 0.1)));
-    
-    const zoomInBtn = document.querySelector('button[title="Zoom In"]');
-    if (zoomInBtn) zoomInBtn.addEventListener('click', () => setZoom(Math.min(3, currentZoom + 0.1)));
-
-    const fitScreenBtn = document.querySelector('button[title="Fit to Screen"]');
-    if (fitScreenBtn) fitScreenBtn.addEventListener('click', () => setZoomToFit());
-
-    // Trackpad Pinch-to-Zoom
-    canvas.on('mouse:wheel', function(opt) {
-        if (opt.e.ctrlKey) {
-            opt.e.preventDefault();
-            opt.e.stopPropagation();
-            let zoom = currentZoom;
-            zoom *= 0.99 ** opt.e.deltaY;
-            if (zoom > 3) zoom = 3;
-            if (zoom < 0.05) zoom = 0.05;
-            setZoom(zoom);
-        }
+      }
+      canvas.requestRenderAll();
+      syncCropOverlay();
     });
+  });
 
-    // Global properties
-    let activeTool = 'Pointer';
-    let currentColor = '#FF3B30';
-    let currentFill = 'none'; // 'none' or color
-    let currentThickness = 4;
+  document.getElementById('btn-cancel-crop')?.addEventListener('click', () => setTool('Pointer'));
+  document.getElementById('btn-apply-crop')?.addEventListener('click', () => {
+    if(!cropRect) return;
     
-    // Undo/Redo history
-    let history = [];
-    let historyIndex = -1;
-    let isHistoryAction = false;
+    // Get crop rect logical coordinates
+    const cropLeft = cropRect.left;
+    const cropTop = cropRect.top;
+    const cropWidth = cropRect.getScaledWidth();
+    const cropHeight = cropRect.getScaledHeight();
     
-    function saveHistory() {
-        if (isHistoryAction) return;
-        const json = canvas.toJSON();
-        history = history.slice(0, historyIndex + 1);
-        history.push(json);
-        historyIndex++;
-        updateUndoRedoUI();
+    // Save current state then reset viewport for full-res export
+    const origVpt = canvas.viewportTransform.slice(0);
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    if (canvas.backgroundImage) {
+      canvas.setWidth(canvas.backgroundImage.width);
+      canvas.setHeight(canvas.backgroundImage.height);
     }
+    cropRect.visible = false;
+    canvas.discardActiveObject();
+    canvas.renderAll();
     
-    function updateUndoRedoUI() {
-        const undoBtn = document.getElementById('btn-undo');
-        const redoBtn = document.getElementById('btn-redo');
-        if (undoBtn) undoBtn.style.opacity = historyIndex > 0 ? '1' : '0.3';
-        if (redoBtn) redoBtn.style.opacity = historyIndex < history.length - 1 ? '1' : '0.3';
-    }
-
-    const undoBtn = document.getElementById('btn-undo');
-    if (undoBtn) undoBtn.addEventListener('click', () => {
-        if (historyIndex > 0) {
-            isHistoryAction = true;
-            historyIndex--;
-            canvas.loadFromJSON(history[historyIndex], () => {
-                canvas.renderAll();
-                isHistoryAction = false;
-                updateUndoRedoUI();
-                updateObjectsList();
-            });
-        }
+    // Export just the crop region at full resolution
+    const croppedDataURL = canvas.toDataURL({
+      format: 'png',
+      left: cropLeft,
+      top: cropTop,
+      width: cropWidth,
+      height: cropHeight
     });
-
-    const redoBtn = document.getElementById('btn-redo');
-    if (redoBtn) redoBtn.addEventListener('click', () => {
-        if (historyIndex < history.length - 1) {
-            isHistoryAction = true;
-            historyIndex++;
-            canvas.loadFromJSON(history[historyIndex], () => {
-                canvas.renderAll();
-                isHistoryAction = false;
-                updateUndoRedoUI();
-                updateObjectsList();
-            });
+    
+    // Restore viewport temporarily
+    resizeCanvas();
+    canvas.setViewportTransform(origVpt);
+    cropRect.visible = true;
+    
+    fabric.Image.fromURL(croppedDataURL, (img) => {
+      bgImageElement = img.getElement();
+      img.set({ selectable: false, evented: false });
+      
+      // Remove cropRect and reposition all objects
+      canvas.remove(cropRect);
+      const objects = canvas.getObjects();
+      for (let i = objects.length - 1; i >= 0; i--) {
+        const obj = objects[i];
+        obj.set({
+          left: obj.left - cropLeft,
+          top: obj.top - cropTop
+        });
+        obj.setCoords();
+        const obr = obj.getBoundingRect(true, true);
+        if (obr.left + obr.width < 0 || obr.top + obr.height < 0 || obr.left > cropWidth || obr.top > cropHeight) {
+          canvas.remove(obj);
         }
+      }
+      
+      canvas.setBackgroundImage(img, () => {
+        resizeCanvas();
+        setZoomToFit();
+        cleanupCrop();
+        setTool('Pointer');
+        saveHistory();
+        
+        const dims = document.querySelectorAll('.bottom-bar span');
+        if(dims.length > 0) dims[0].innerText = `${Math.round(cropWidth)} × ${Math.round(cropHeight)}`;
+      });
     });
+  });
 
-    // Load Image
-    try {
-        const data = await chrome.storage.local.get('screenshotData');
-        if (data.screenshotData) {
-            fabric.Image.fromURL(data.screenshotData, function(img) {
-                canvas.setWidth(img.width);
-                canvas.setHeight(img.height);
-                canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-                
-                setZoomToFit();
-                saveHistory(); // Save initial state
-            });
-        }
-    } catch (e) {
-        console.error('Error loading screenshot in editor', e);
-    }
+  canvas.on('object:moving', (e) => { if(e.target === cropRect) syncCropOverlay(); });
+  canvas.on('object:scaling', (e) => { if(e.target === cropRect) syncCropOverlay(); });
+  canvas.on('object:modified', (e) => { if(e.target === cropRect) syncCropOverlay(); });
 
-    // Properties UI Handling
-    const rsDefault = document.getElementById('rs-default');
-    const rsProperties = document.getElementById('rs-properties');
-    const rsPropIcon = document.getElementById('rs-prop-icon');
-    const rsPropTitle = document.getElementById('rs-prop-title');
+  // Drawing Events
+  let isDrawingShape = false;
+  let currentShape = null;
+  let startX, startY;
+
+  canvas.on('mouse:down', function(opt) {
+    if (activeTool === 'Pointer' || activeTool === 'Crop' || canvas.isDrawingMode || isDraggingCanvas) return;
     
-    const rsColorSection = document.getElementById('rs-color-section');
-    const rsThicknessSection = document.getElementById('rs-thickness-section');
-    const rsFillSection = document.getElementById('rs-fill-section');
-    
-    const toolsConfig = {
-        'Pointer': { showProps: false },
-        'Crop': { showProps: false },
-        'Rectangle': { showProps: true, title: 'Rectangle', hasColor: true, hasThickness: true, hasFill: true },
-        'Circle': { showProps: true, title: 'Ellipse', hasColor: true, hasThickness: true, hasFill: true },
-        'Arrow': { showProps: true, title: 'Arrow', hasColor: true, hasThickness: true, hasFill: false },
-        'Line': { showProps: true, title: 'Line', hasColor: true, hasThickness: true, hasFill: false },
-        'Text': { showProps: true, title: 'Text', hasColor: true, hasThickness: false, hasFill: false },
-        'Pen': { showProps: true, title: 'Pen', hasColor: true, hasThickness: true, hasFill: false }
+    const pointer = canvas.getPointer(opt.e);
+    startX = pointer.x;
+    startY = pointer.y;
+    isDrawingShape = true;
+
+    const commonOpts = {
+      fill: currentFill,
+      stroke: currentColor,
+      strokeWidth: currentThickness,
+      selectable: false,
+      evented: false,
+      transparentCorners: false,
+      cornerColor: '#007AFF'
     };
 
-    function applyPropertiesToActiveObject() {
-        const activeObj = canvas.getActiveObject();
-        if (!activeObj) return;
-        
-        if (activeObj.type === 'path' || activeObj.type === 'line' || activeObj.type === 'arrow') {
-            activeObj.set({ stroke: currentColor, strokeWidth: currentThickness });
-        } else if (activeObj.type === 'rect' || activeObj.type === 'ellipse') {
-            activeObj.set({ stroke: currentColor, strokeWidth: currentThickness, fill: currentFill === 'none' ? 'transparent' : currentFill });
-        } else if (activeObj.type === 'i-text') {
-            activeObj.set({ fill: currentColor });
-        }
-        canvas.renderAll();
-        saveHistory();
+    if (activeTool === 'Rectangle') {
+      currentShape = new fabric.Rect({
+        left: startX, top: startY, width: 0, height: 0, ...commonOpts
+      });
+    } else if (activeTool === 'RoundedRectangle') {
+      currentShape = new fabric.Rect({
+        left: startX, top: startY, width: 0, height: 0, rx: 8, ry: 8, ...commonOpts
+      });
+    } else if (activeTool === 'Circle') {
+      currentShape = new fabric.Ellipse({
+        left: startX, top: startY, rx: 0, ry: 0, ...commonOpts
+      });
+    } else if (activeTool === 'Line') {
+      currentShape = new fabric.Line([startX, startY, startX, startY], {
+        ...commonOpts, fill: undefined
+      });
+    } else if (activeTool === 'Arrow') {
+      currentShape = new fabric.Arrow([startX, startY, startX, startY], {
+        ...commonOpts, fill: undefined
+      });
+    } else if (activeTool === 'Text') {
+      currentShape = new fabric.IText('Text', {
+        left: startX, top: startY,
+        fill: currentColor,
+        fontSize: Math.max(20, currentThickness * 10),
+        fontFamily: 'Arial',
+        selectable: true,
+        evented: true
+      });
+      canvas.add(currentShape);
+      canvas.setActiveObject(currentShape);
+      currentShape.enterEditing();
+      currentShape.selectAll();
+      isDrawingShape = false;
+      setTool('Pointer');
+      saveHistory();
+      return;
+    } else if (activeTool === 'NumberMarker') {
+      currentShape = new fabric.NumberMarker({
+        left: startX, top: startY,
+        text: String(globalMarkerCounter++),
+        fill: currentColor,
+        radius: Math.max(15, currentThickness * 5),
+        selectable: true,
+        evented: true,
+        originX: 'center', originY: 'center'
+      });
+      canvas.add(currentShape);
+      isDrawingShape = false;
+      saveHistory();
+      return;
+    } else if (activeTool === 'Blur' || activeTool === 'Pixelate') {
+      currentShape = new fabric.Rect({
+        left: startX, top: startY, width: 0, height: 0,
+        fill: 'transparent',
+        stroke: '#000',
+        strokeDashArray: [5, 5],
+        selectable: false,
+        evented: false,
+        isTemporaryFilterRect: true
+      });
     }
 
-    // Interactive swatches and sliders
-    document.querySelectorAll('.color-swatch').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.color-swatch').forEach(b => b.classList.remove('active'));
-            e.currentTarget.classList.add('active');
-            let bg = e.currentTarget.style.backgroundColor || e.currentTarget.style.background;
-            if (bg.includes('conic-gradient')) bg = '#000000'; // fallback for multi-color
-            currentColor = bg;
-            applyPropertiesToActiveObject();
-        });
-    });
+    if (currentShape) canvas.add(currentShape);
+  });
 
-    document.querySelectorAll('.fill-swatch').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.fill-swatch').forEach(b => b.classList.remove('active'));
-            e.currentTarget.classList.add('active');
-            if (e.currentTarget.classList.contains('no-fill')) {
-                currentFill = 'none';
-            } else {
-                currentFill = e.currentTarget.style.backgroundColor || e.currentTarget.style.background;
-            }
-            applyPropertiesToActiveObject();
-        });
-    });
-
-    const thicknessSlider = document.getElementById('rs-thickness-slider');
-    if (thicknessSlider) {
-        thicknessSlider.addEventListener('input', (e) => {
-            currentThickness = parseInt(e.target.value);
-            document.getElementById('rs-thickness-val').textContent = currentThickness + ' px';
-            applyPropertiesToActiveObject();
-        });
-    }
-
-    // Tool Selection
-    let cropRect = null;
-    let cropBtnGroup = null;
-
-    function syncCropOverlay() {
-        if (!cropRect) return;
-        const overlay = document.getElementById('dark-crop-overlay');
-        const pill = document.getElementById('crop-dimension-pill');
-        const cw = cropRect.width * cropRect.scaleX;
-        const ch = cropRect.height * cropRect.scaleY;
-        overlay.style.width = (cw * currentZoom) + 'px';
-        overlay.style.height = (ch * currentZoom) + 'px';
-        overlay.style.left = (cropRect.left * currentZoom) + 'px';
-        overlay.style.top = (cropRect.top * currentZoom) + 'px';
-        pill.textContent = `${Math.round(cw)} x ${Math.round(ch)}`;
-        
-        // Ensure corner size remains consistent regardless of zoom
-        cropRect.set({ cornerSize: 12 / currentZoom });
-    }
-
-    function cleanupCrop() {
-        if (cropRect) canvas.remove(cropRect);
-        cropRect = null;
-        document.getElementById('crop-action-bar').style.display = 'none';
-        document.getElementById('dark-crop-overlay').style.display = 'none';
-        canvas.renderAll();
-    }
-
-    const toolBtns = document.querySelectorAll('.left-sidebar .tool-btn');
-    toolBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            toolBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            activeTool = btn.getAttribute('title');
-            cleanupCrop();
-            
-            if (activeTool === 'Pointer') {
-                canvas.isDrawingMode = false;
-                canvas.selection = true;
-                canvas.forEachObject(o => { o.selectable = true; o.evented = true; });
-                canvas.defaultCursor = 'default';
-            } else if (activeTool === 'Pen' || activeTool === 'Brush') {
-                canvas.isDrawingMode = true;
-                canvas.freeDrawingBrush.color = currentColor;
-                canvas.freeDrawingBrush.width = currentThickness;
-                canvas.selection = false;
-                canvas.discardActiveObject();
-                canvas.renderAll();
-            } else if (activeTool === 'Crop') {
-                canvas.isDrawingMode = false;
-                canvas.selection = false;
-                canvas.discardActiveObject();
-                
-                document.getElementById('crop-action-bar').style.display = 'flex';
-                document.getElementById('dark-crop-overlay').style.display = 'block';
-                
-                const container = document.getElementById('canvas-container-outer');
-                const wrapper = document.getElementById('image-wrapper');
-                const cw = canvas.backgroundImage.width;
-                const ch = canvas.backgroundImage.height;
-                
-                const cRect = container.getBoundingClientRect();
-                const wRect = wrapper.getBoundingClientRect();
-                
-                const screenCenterX = cRect.left + cRect.width / 2;
-                const screenCenterY = cRect.top + cRect.height / 2;
-                
-                let relativeX = screenCenterX - wRect.left;
-                let relativeY = screenCenterY - wRect.top;
-                
-                if (relativeX < 0 || relativeX > wRect.width) relativeX = wRect.width / 2;
-                if (relativeY < 0 || relativeY > wRect.height) relativeY = wRect.height / 2;
-
-                const fabricCenterX = relativeX / currentZoom;
-                const fabricCenterY = relativeY / currentZoom;
-
-                const w = Math.min(cw * 0.8, (cRect.width * 0.8) / currentZoom);
-                const h = Math.min(ch * 0.8, (cRect.height * 0.8) / currentZoom);
-                
-                let startX = fabricCenterX - w / 2;
-                let startY = fabricCenterY - h / 2;
-                if (startX < 0) startX = 0;
-                if (startY < 0) startY = 0;
-                if (startX + w > cw) startX = cw - w;
-                if (startY + h > ch) startY = ch - h;
-                
-                cropRect = new fabric.Rect({
-                    left: startX,
-                    top: startY,
-                    width: w,
-                    height: h,
-                    fill: 'transparent',
-                    stroke: 'transparent',
-                    strokeWidth: 0,
-                    hasBorders: false,
-                    cornerColor: 'white',
-                    cornerStrokeColor: 'rgba(0,0,0,0.2)',
-                    transparentCorners: false,
-                    cornerSize: 12 / currentZoom,
-                    cornerStyle: 'rect',
-                    selectable: true,
-                    evented: true
-                });
-                
-                cropRect.on('moving', function() {
-                    if (this.left < 0) this.left = 0;
-                    if (this.top < 0) this.top = 0;
-                    if (this.left + this.width * this.scaleX > cw) this.left = cw - this.width * this.scaleX;
-                    if (this.top + this.height * this.scaleY > ch) this.top = ch - this.height * this.scaleY;
-                    syncCropOverlay();
-                });
-                
-                cropRect.on('scaling', syncCropOverlay);
-
-                canvas.add(cropRect);
-                canvas.setActiveObject(cropRect);
-                canvas.renderAll();
-                syncCropOverlay();
-                
-            } else {
-                canvas.isDrawingMode = false;
-                canvas.selection = false;
-                canvas.forEachObject(o => { o.selectable = false; o.evented = false; });
-                canvas.discardActiveObject();
-                canvas.renderAll();
-                canvas.defaultCursor = 'crosshair';
-            }
-            
-            const config = toolsConfig[activeTool];
-            
-            if (config && config.showProps) {
-                rsDefault.style.display = 'none';
-                rsProperties.style.display = 'flex';
-                rsPropTitle.textContent = config.title;
-                rsPropIcon.innerHTML = btn.innerHTML;
-                
-                rsColorSection.style.display = config.hasColor ? 'block' : 'none';
-                rsThicknessSection.style.display = config.hasThickness ? 'block' : 'none';
-                rsFillSection.style.display = config.hasFill ? 'block' : 'none';
-            } else {
-                rsDefault.style.display = 'block';
-                rsProperties.style.display = 'none';
-            }
-        });
-    });
-
-    document.getElementById('btn-cancel-crop').addEventListener('click', () => {
-        document.querySelector('.tool-btn[title="Pointer"]').click();
-    });
-
-    document.getElementById('btn-apply-crop').addEventListener('click', () => {
-        if (!cropRect) return;
-        
-        // Restore zoom temporarily for clean crop
-        const origZoom = currentZoom;
-        canvas.setZoom(1);
-        
-        const croppedDataURL = canvas.toDataURL({
-            left: cropRect.left,
-            top: cropRect.top,
-            width: cropRect.width * cropRect.scaleX,
-            height: cropRect.height * cropRect.scaleY,
-            format: 'png'
-        });
-        
-        cleanupCrop();
-        
-        fabric.Image.fromURL(croppedDataURL, function(img) {
-            canvas.clear(); 
-            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-            canvas.setWidth(img.width);
-            canvas.setHeight(img.height);
-            setZoomToFit();
-            saveHistory();
-            document.querySelector('.tool-btn[title="Pointer"]').click();
-        });
-    });
-
-    // Custom drawing logic
-    let isDrawing = false;
-    let startX = 0, startY = 0;
-    let shape = null;
-
-    canvas.on('mouse:down', function(o) {
-        if (activeTool === 'Pointer' || activeTool === 'Crop' || canvas.isDrawingMode) return;
-        
-        isDrawing = true;
-        const pointer = canvas.getPointer(o.e);
-        startX = pointer.x;
-        startY = pointer.y;
-        
-        if (activeTool === 'Rectangle') {
-            shape = new fabric.Rect({
-                left: startX,
-                top: startY,
-                width: 0,
-                height: 0,
-                fill: currentFill === 'none' ? 'transparent' : currentFill,
-                stroke: currentColor,
-                strokeWidth: currentThickness,
-                selectable: false
-            });
-            canvas.add(shape);
-        } else if (activeTool === 'Circle') {
-            shape = new fabric.Ellipse({
-                left: startX,
-                top: startY,
-                rx: 0,
-                ry: 0,
-                fill: currentFill === 'none' ? 'transparent' : currentFill,
-                stroke: currentColor,
-                strokeWidth: currentThickness,
-                selectable: false
-            });
-            canvas.add(shape);
-        } else if (activeTool === 'Line' || activeTool === 'Arrow') {
-            const points = [startX, startY, startX, startY];
-            shape = new fabric.Line(points, {
-                strokeWidth: currentThickness,
-                stroke: currentColor,
-                selectable: false,
-                originX: 'center',
-                originY: 'center'
-            });
-            shape.type = activeTool === 'Arrow' ? 'arrow' : 'line';
-            canvas.add(shape);
-        } else if (activeTool === 'Text') {
-            const text = new fabric.IText('Text', {
-                left: startX,
-                top: startY,
-                fontFamily: 'Helvetica',
-                fill: currentColor,
-                fontSize: 40 * (1/currentZoom) // Make text reasonable size
-            });
-            canvas.add(text);
-            canvas.setActiveObject(text);
-            text.enterEditing();
-            text.selectAll();
-            saveHistory();
-            isDrawing = false;
-            
-            document.querySelector('.tool-btn[title="Pointer"]').click();
-        }
-    });
-
-    canvas.on('mouse:move', function(o) {
-        if (!isDrawing || !shape) return;
-        
-        const pointer = canvas.getPointer(o.e);
-        
-        if (activeTool === 'Rectangle') {
-            shape.set({
-                left: Math.min(startX, pointer.x),
-                top: Math.min(startY, pointer.y),
-                width: Math.abs(pointer.x - startX),
-                height: Math.abs(pointer.y - startY)
-            });
-        } else if (activeTool === 'Circle') {
-            shape.set({
-                left: Math.min(startX, pointer.x),
-                top: Math.min(startY, pointer.y),
-                rx: Math.abs(pointer.x - startX) / 2,
-                ry: Math.abs(pointer.y - startY) / 2
-            });
-        } else if (activeTool === 'Line' || activeTool === 'Arrow') {
-            shape.set({ x2: pointer.x, y2: pointer.y });
-        }
-        canvas.renderAll();
-    });
-
-    canvas.on('mouse:up', function() {
-        if (isDrawing) {
-            isDrawing = false;
-            if (shape) {
-                if (shape.width < 5 && shape.height < 5 && shape.type !== 'line' && shape.type !== 'arrow') {
-                    canvas.remove(shape);
-                } else {
-                    saveHistory();
-                    updateObjectsList();
-                }
-                shape = null;
-            }
-        }
-    });
+  canvas.on('mouse:move', function(opt) {
+    if (!isDrawingShape || !currentShape || activeTool === 'Pointer' || activeTool === 'Crop') return;
+    const pointer = canvas.getPointer(opt.e);
     
-    canvas.on('after:render', function() {
-        canvas.getObjects().forEach(obj => {
-            if (obj.type === 'arrow') {
-                const ctx = canvas.getContext();
-                const p1 = {x: obj.x1, y: obj.y1};
-                const p2 = {x: obj.x2, y: obj.y2};
-                const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-                
-                ctx.save();
-                ctx.translate(obj.left + obj.width/2, obj.top + obj.height/2);
-                
-                let dx = p2.x - p1.x;
-                let dy = p2.y - p1.y;
-                
-                ctx.translate(dx/2, dy/2); 
-                ctx.rotate(angle);
-                
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                const headlen = 15 + obj.strokeWidth;
-                ctx.lineTo(-headlen, headlen/2);
-                ctx.lineTo(-headlen, -headlen/2);
-                ctx.closePath();
-                ctx.fillStyle = obj.stroke;
-                ctx.fill();
-                
-                ctx.restore();
-            }
-        });
-    });
+    if (activeTool === 'Rectangle' || activeTool === 'RoundedRectangle' || activeTool === 'Blur' || activeTool === 'Pixelate') {
+      currentShape.set({
+        left: Math.min(startX, pointer.x),
+        top: Math.min(startY, pointer.y),
+        width: Math.abs(pointer.x - startX),
+        height: Math.abs(pointer.y - startY)
+      });
+    } else if (activeTool === 'Circle') {
+      let rx = Math.abs(pointer.x - startX) / 2;
+      let ry = Math.abs(pointer.y - startY) / 2;
+      if (opt.e.shiftKey) {
+        rx = ry = Math.max(rx, ry);
+      }
+      currentShape.set({
+        left: Math.min(startX, pointer.x),
+        top: Math.min(startY, pointer.y),
+        rx: rx,
+        ry: ry
+      });
+    } else if (activeTool === 'Line' || activeTool === 'Arrow') {
+      currentShape.set({ x2: pointer.x, y2: pointer.y });
+    }
+    
+    canvas.requestRenderAll();
+  });
 
-    canvas.on('path:created', function() {
+  canvas.on('mouse:up', function() {
+    if (!isDrawingShape || !currentShape) return;
+    isDrawingShape = false;
+    
+    let isSmall = false;
+    if (activeTool === 'Line' || activeTool === 'Arrow') {
+      isSmall = (Math.abs(currentShape.x2 - currentShape.x1) < 5 && Math.abs(currentShape.y2 - currentShape.y1) < 5);
+    } else {
+      const w = currentShape.getScaledWidth ? currentShape.getScaledWidth() : (currentShape.width || 0);
+      const h = currentShape.getScaledHeight ? currentShape.getScaledHeight() : (currentShape.height || 0);
+      isSmall = (w < 5 && h < 5);
+    }
+    
+    if (isSmall) {
+      canvas.remove(currentShape);
+      currentShape = null;
+      return;
+    }
+
+    if (activeTool === 'Blur' || activeTool === 'Pixelate') {
+      currentShape.setCoords();
+      const br = currentShape.getBoundingRect(true, true);
+      const filterDataURL = generateFilterRegionDataURL(br, activeTool, bgImageElement);
+      
+      fabric.Image.fromURL(filterDataURL, (img) => {
+        img.set({
+          left: br.left,
+          top: br.top,
+          selectable: (activeTool === 'Pointer'),
+          evented: (activeTool === 'Pointer'),
+          filterType: activeTool
+        });
+        canvas.add(img);
+        canvas.remove(currentShape);
+        currentShape = null;
         saveHistory();
+      });
+    } else {
+      currentShape.set({ 
+        selectable: (activeTool === 'Pointer'), 
+        evented: (activeTool === 'Pointer') 
+      });
+      currentShape.setCoords();
+      saveHistory();
+    }
+    
+    currentShape = null;
+  });
+
+  // Keyboard Shortcuts
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (canvas.getActiveObject() && canvas.getActiveObject().isEditing) return;
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) doRedo();
+      else doUndo();
+      return;
+    }
+
+    const keyMap = {
+      'v': 'Pointer', 'r': 'Rectangle', 'c': 'Circle', 'a': 'Arrow', 'l': 'Line',
+      'p': 'Pen', 't': 'Text', 'h': 'Highlight', 'b': 'Blur', 'n': 'NumberMarker'
+    };
+    if (keyMap[e.key.toLowerCase()] && !e.metaKey && !e.ctrlKey) {
+      setTool(keyMap[e.key.toLowerCase()]);
+    }
+
+    if (e.key === 'Escape') {
+      if (activeTool === 'Crop') setTool('Pointer');
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+    }
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const activeObjs = canvas.getActiveObjects();
+      if (activeObjs.length > 0) {
+        let deleted = false;
+        activeObjs.forEach(obj => {
+          if (obj !== cropRect) {
+            canvas.remove(obj);
+            deleted = true;
+          }
+        });
+        canvas.discardActiveObject();
+        if (deleted) saveHistory();
+      }
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+      e.preventDefault();
+      const activeObj = canvas.getActiveObject();
+      if (activeObj && activeObj !== cropRect) {
+        activeObj.clone((cloned) => {
+          cloned.set({
+            left: cloned.left + 20,
+            top: cloned.top + 20,
+            evented: true,
+            selectable: true
+          });
+          if (cloned.type === 'activeSelection') {
+            cloned.canvas = canvas;
+            cloned.forEachObject(obj => canvas.add(obj));
+            cloned.setCoords();
+          } else {
+            canvas.add(cloned);
+          }
+          canvas.setActiveObject(cloned);
+          canvas.requestRenderAll();
+          saveHistory();
+        });
+      }
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+      e.preventDefault();
+      const activeObj = canvas.getActiveObject();
+      if (activeObj && activeObj !== cropRect) {
+        const isLocked = activeObj.lockMovementX;
+        activeObj.set({
+          lockMovementX: !isLocked,
+          lockMovementY: !isLocked,
+          lockRotation: !isLocked,
+          lockScalingX: !isLocked,
+          lockScalingY: !isLocked,
+          hasControls: isLocked
+        });
+        canvas.requestRenderAll();
+        saveHistory();
+      }
+    }
+  });
+
+  // Properties Panel
+  const rsDefault = document.getElementById('rs-default');
+  const rsProperties = document.getElementById('rs-properties');
+  const rsPropTitle = document.getElementById('rs-prop-title');
+  const inputX = document.getElementById('rs-input-x');
+  const inputY = document.getElementById('rs-input-y');
+  const inputW = document.getElementById('rs-input-w');
+  const inputH = document.getElementById('rs-input-h');
+  const inputRot = document.getElementById('rs-input-rot');
+  const opacitySlider = document.getElementById('rs-opacity-slider');
+  const opacityVal = document.getElementById('rs-opacity-val');
+  const thicknessSlider = document.getElementById('rs-thickness-slider');
+  const thicknessVal = document.getElementById('rs-thickness-val');
+  const radiusSlider = document.getElementById('rs-radius-slider');
+  const radiusVal = document.getElementById('rs-radius-val');
+  const fontSection = document.getElementById('rs-font-section');
+  const fontSizeInput = document.getElementById('rs-input-fontsize');
+  const fontFamilyInput = document.getElementById('rs-input-fontfamily');
+  const textBgInput = document.getElementById('rs-input-textbg');
+  const textShadowInput = document.getElementById('rs-input-textshadow');
+
+  function applyPropertiesToActiveObject() {
+    const obj = canvas.getActiveObject();
+    if (!obj) return;
+
+    if (obj.type === 'i-text' || obj.type === 'text') {
+      obj.set({ fill: currentColor });
+    } else if (obj.type === 'path' || obj.type === 'line' || obj.type === 'arrow') {
+      obj.set({ stroke: currentColor, strokeWidth: currentThickness });
+    } else if (obj.type === 'numberMarker') {
+      obj.item(0).set({ fill: currentColor });
+    } else if (!obj.isTemporaryFilterRect && obj.type !== 'image') {
+      obj.set({ stroke: currentColor, fill: currentFill, strokeWidth: currentThickness });
+    }
+    
+    if (activeTool === 'Pen' && canvas.freeDrawingBrush) {
+      canvas.freeDrawingBrush.color = currentColor;
+    } else if (activeTool === 'Highlight' && canvas.freeDrawingBrush) {
+      canvas.freeDrawingBrush.color = new fabric.Color(currentColor).setAlpha(0.4).toRgba();
+    }
+
+    canvas.requestRenderAll();
+    saveHistory();
+  }
+
+  document.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.addEventListener('click', (e) => {
+      document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      e.currentTarget.classList.add('active');
+      currentColor = e.currentTarget.style.backgroundColor || e.currentTarget.style.background || '#000000';
+      applyPropertiesToActiveObject();
+    });
+  });
+
+  document.querySelectorAll('.fill-swatch').forEach(sw => {
+    sw.addEventListener('click', (e) => {
+      document.querySelectorAll('.fill-swatch').forEach(s => s.classList.remove('active'));
+      e.currentTarget.classList.add('active');
+      if (e.currentTarget.classList.contains('no-fill')) {
+        currentFill = 'transparent';
+      } else {
+        currentFill = e.currentTarget.style.backgroundColor || e.currentTarget.style.background || '#000000';
+      }
+      applyPropertiesToActiveObject();
+    });
+  });
+
+  thicknessSlider?.addEventListener('input', (e) => {
+    currentThickness = parseInt(e.target.value);
+    if(thicknessVal) thicknessVal.innerText = currentThickness + 'px';
+    const obj = canvas.getActiveObject();
+    if (obj && (obj.type === 'path' || obj.type === 'line' || obj.type === 'arrow' || obj.type === 'rect' || obj.type === 'ellipse' || obj.type === 'circle')) {
+      obj.set({ strokeWidth: currentThickness });
+      canvas.requestRenderAll();
+    }
+    if (activeTool === 'Pen') canvas.freeDrawingBrush.width = currentThickness;
+    if (activeTool === 'Highlight') canvas.freeDrawingBrush.width = Math.max(20, currentThickness * 4);
+  });
+  thicknessSlider?.addEventListener('change', () => { if(canvas.getActiveObject()) saveHistory(); });
+
+  opacitySlider?.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    if(opacityVal) opacityVal.innerText = val + '%';
+    const obj = canvas.getActiveObject();
+    if (obj) {
+      obj.set({ opacity: val / 100 });
+      canvas.requestRenderAll();
+    }
+  });
+  opacitySlider?.addEventListener('change', () => { if(canvas.getActiveObject()) saveHistory(); });
+
+  radiusSlider?.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    if(radiusVal) radiusVal.innerText = val + 'px';
+    const obj = canvas.getActiveObject();
+    if (obj && obj.type === 'rect') {
+      obj.set({ rx: val, ry: val });
+      canvas.requestRenderAll();
+    }
+  });
+  radiusSlider?.addEventListener('change', () => { if(canvas.getActiveObject()?.type === 'rect') saveHistory(); });
+
+  fontSizeInput?.addEventListener('change', (e) => {
+    const obj = canvas.getActiveObject();
+    if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+      obj.set({ fontSize: parseInt(e.target.value) || 20 });
+      canvas.requestRenderAll();
+      saveHistory();
+    }
+  });
+
+  fontFamilyInput?.addEventListener('change', (e) => {
+    const obj = canvas.getActiveObject();
+    if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+      obj.set({ fontFamily: e.target.value });
+      canvas.requestRenderAll();
+      saveHistory();
+    }
+  });
+
+  textBgInput?.addEventListener('change', (e) => {
+    const obj = canvas.getActiveObject();
+    if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+      obj.set({ textBackgroundColor: e.target.checked ? '#000000' : '' });
+      canvas.requestRenderAll();
+      saveHistory();
+    }
+  });
+
+  textShadowInput?.addEventListener('change', (e) => {
+    const obj = canvas.getActiveObject();
+    if (obj && (obj.type === 'i-text' || obj.type === 'text')) {
+      obj.set({ shadow: e.target.checked ? new fabric.Shadow({ color: 'rgba(0,0,0,0.5)', blur: 4, offsetX: 2, offsetY: 2 }) : null });
+      canvas.requestRenderAll();
+      saveHistory();
+    }
+  });
+
+  function updatePropsFromSelection() {
+    const obj = canvas.getActiveObject();
+    if (!obj || obj === cropRect) {
+      rsDefault.style.display = 'block';
+      rsProperties.style.display = 'none';
+      return;
+    }
+    rsDefault.style.display = 'none';
+    rsProperties.style.display = 'flex';
+    
+    const typeNames = {
+      'rect': obj.rx > 0 ? 'Rounded Rect' : 'Rectangle',
+      'ellipse': 'Ellipse',
+      'line': 'Line',
+      'arrow': 'Arrow',
+      'i-text': 'Text',
+      'text': 'Text',
+      'path': 'Drawing',
+      'image': obj.filterType === 'Blur' ? 'Blur' : obj.filterType === 'Pixelate' ? 'Pixelate' : 'Image',
+      'numberMarker': 'Number Marker',
+      'group': obj.markerNumber ? `Marker ${obj.markerNumber}` : 'Group'
+    };
+    rsPropTitle.innerText = typeNames[obj.type] || (obj.type.charAt(0).toUpperCase() + obj.type.slice(1));
+
+    if(inputX) inputX.value = Math.round(obj.left);
+    if(inputY) inputY.value = Math.round(obj.top);
+    if(inputW) inputW.value = Math.round(obj.width * obj.scaleX);
+    if(inputH) inputH.value = Math.round(obj.height * obj.scaleY);
+    if(inputRot) inputRot.value = Math.round(obj.angle);
+
+    if(opacitySlider) opacitySlider.value = Math.round(obj.opacity * 100);
+    if(opacityVal) opacityVal.innerText = Math.round(obj.opacity * 100) + '%';
+    
+    // Show/hide sections based on type
+    const colorSection = document.getElementById('rs-color-section');
+    const fillSection = document.getElementById('rs-fill-section');
+    const thickSection = document.getElementById('rs-thickness-section');
+    
+    const isText = (obj.type === 'i-text' || obj.type === 'text');
+    const isShape = (obj.type === 'rect' || obj.type === 'ellipse');
+    const isStroke = (obj.type === 'path' || obj.type === 'line' || obj.type === 'arrow');
+    const isImage = (obj.type === 'image');
+    const isMarker = (obj.type === 'numberMarker' || (obj.type === 'group' && obj.markerNumber));
+    
+    if (colorSection) colorSection.style.display = isImage ? 'none' : 'block';
+    if (fillSection) fillSection.style.display = isShape ? 'block' : 'none';
+    if (thickSection) thickSection.style.display = (isText || isImage || isMarker) ? 'none' : 'block';
+
+    if (obj.type === 'rect') {
+      if(radiusSlider) radiusSlider.parentElement.style.display = 'block';
+      if(radiusSlider) radiusSlider.value = obj.rx || 0;
+      if(radiusVal) radiusVal.innerText = (obj.rx || 0) + 'px';
+    } else {
+      if(radiusSlider) radiusSlider.parentElement.style.display = 'none';
+    }
+
+    if (isText) {
+      if(fontSection) fontSection.style.display = 'block';
+      if(fontSizeInput) fontSizeInput.value = obj.fontSize;
+      if(fontFamilyInput) fontFamilyInput.value = obj.fontFamily;
+      if(textBgInput) textBgInput.checked = !!obj.textBackgroundColor;
+      if(textShadowInput) textShadowInput.checked = !!obj.shadow;
+    } else {
+      if(fontSection) fontSection.style.display = 'none';
+    }
+    
+    if (thicknessSlider && obj.strokeWidth !== undefined) {
+      thicknessSlider.value = obj.strokeWidth;
+      if(thicknessVal) thicknessVal.innerText = obj.strokeWidth + 'px';
+    }
+  }
+
+  canvas.on('selection:created', updatePropsFromSelection);
+  canvas.on('selection:updated', updatePropsFromSelection);
+  canvas.on('selection:cleared', updatePropsFromSelection);
+  
+  canvas.on('object:moving', updatePropsFromSelection);
+  canvas.on('object:scaling', updatePropsFromSelection);
+  canvas.on('object:rotating', updatePropsFromSelection);
+  canvas.on('object:modified', updatePropsFromSelection);
+
+  ['input-x', 'input-y', 'input-w', 'input-h', 'input-rot'].forEach(id => {
+    document.getElementById('rs-' + id)?.addEventListener('change', (e) => {
+      const obj = canvas.getActiveObject();
+      if (!obj) return;
+      const val = parseFloat(e.target.value);
+      if (isNaN(val)) return;
+      
+      switch(id) {
+        case 'input-x': obj.set({ left: val }); break;
+        case 'input-y': obj.set({ top: val }); break;
+        case 'input-w': obj.set({ scaleX: val / obj.width }); break;
+        case 'input-h': obj.set({ scaleY: val / obj.height }); break;
+        case 'input-rot': obj.set({ angle: val }); break;
+      }
+      obj.setCoords();
+      canvas.requestRenderAll();
+      saveHistory();
+    });
+  });
+
+  document.getElementById('btn-bring-forward')?.addEventListener('click', () => {
+    const obj = canvas.getActiveObject();
+    if (obj && obj !== cropRect) {
+      canvas.bringForward(obj);
+      saveHistory();
+    }
+  });
+
+  document.getElementById('btn-send-backward')?.addEventListener('click', () => {
+    const obj = canvas.getActiveObject();
+    if (obj && obj !== cropRect) {
+      canvas.sendBackwards(obj);
+      saveHistory();
+    }
+  });
+
+  document.getElementById('btn-reset-markers')?.addEventListener('click', () => {
+    globalMarkerCounter = 1;
+  });
+
+  // Objects List
+  const objectsList = document.getElementById('rs-objects-list');
+  const objectsCount = document.getElementById('rs-objects-count');
+  const objectsEmpty = document.getElementById('rs-objects-empty');
+
+  function updateObjectsList() {
+    if (!objectsList) return;
+    objectsList.innerHTML = '';
+    const objects = canvas.getObjects();
+    let count = 0;
+    
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const obj = objects[i];
+      if (obj === cropRect || obj.isTemporaryFilterRect) continue;
+      count++;
+      
+      const item = document.createElement('div');
+      item.className = 'layer-item';
+      if (canvas.getActiveObject() === obj) item.classList.add('active');
+      
+      item.onclick = (e) => {
+        if(e.target.tagName === 'BUTTON' || e.target.parentElement.tagName === 'BUTTON') return;
+        canvas.setActiveObject(obj);
+        canvas.requestRenderAll();
+      };
+      
+      let typeName = obj.type.charAt(0).toUpperCase() + obj.type.slice(1);
+      if (obj.filterType) typeName = obj.filterType;
+      
+      item.innerHTML = `
+        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${obj.fill && obj.fill !== 'transparent' ? obj.fill : (obj.stroke || '#fff')}; margin-right:8px;"></span>
+        <span style="flex-grow:1; font-size:12px;">${typeName}</span>
+        <button class="layer-btn visibility-btn">${obj.visible ? '👁️' : '👁️‍🗨️'}</button>
+        <button class="layer-btn delete-btn">🗑️</button>
+      `;
+      
+      item.querySelector('.visibility-btn').onclick = () => {
+        obj.visible = !obj.visible;
+        canvas.requestRenderAll();
         updateObjectsList();
-    });
-
-    // Delete object
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' || e.key === 'Delete') {
-            const activeObj = canvas.getActiveObject();
-            if (activeObj && !activeObj.isEditing && activeObj.type !== 'rect') { 
-                // Don't delete crop rect
-                if (activeTool === 'Crop' && activeObj === cropRect) return;
-                canvas.remove(activeObj);
-                saveHistory();
-                updateObjectsList();
-            }
-        }
-    });
-
-    // Property panel update on selection
-    canvas.on('selection:created', updatePropsFromSelection);
-    canvas.on('selection:updated', updatePropsFromSelection);
-    canvas.on('selection:cleared', () => {
-        if (activeTool === 'Pointer') {
-            rsDefault.style.display = 'block';
-            rsProperties.style.display = 'none';
-        }
-    });
-
-    function updatePropsFromSelection() {
-        if (activeTool !== 'Pointer') return;
-        
-        const obj = canvas.getActiveObject();
-        if (!obj) return;
-        
-        rsDefault.style.display = 'none';
-        rsProperties.style.display = 'flex';
-        
-        let typeName = 'Object';
-        if (obj.type === 'rect') typeName = 'Rectangle';
-        if (obj.type === 'ellipse') typeName = 'Ellipse';
-        if (obj.type === 'line') typeName = 'Line';
-        if (obj.type === 'arrow') typeName = 'Arrow';
-        if (obj.type === 'i-text') typeName = 'Text';
-        if (obj.type === 'path') typeName = 'Drawing';
-        
-        rsPropTitle.textContent = typeName;
-        rsPropIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:20px;height:20px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2z"/></svg>`;
-        
-        rsColorSection.style.display = 'block';
-        rsThicknessSection.style.display = (obj.type === 'i-text') ? 'none' : 'block';
-        rsFillSection.style.display = (obj.type === 'rect' || obj.type === 'ellipse') ? 'block' : 'none';
-        
-        if (obj.strokeWidth && thicknessSlider) {
-            thicknessSlider.value = obj.strokeWidth;
-            document.getElementById('rs-thickness-val').textContent = obj.strokeWidth + ' px';
-        }
-    }
-
-    // Objects List
-    function updateObjectsList() {
-        const objectsList = document.getElementById('rs-objects-list');
-        const objectsCount = document.getElementById('rs-objects-count');
-        const emptyState = document.getElementById('rs-objects-empty');
-        
-        if (!objectsList) return;
-        objectsList.innerHTML = '';
-        
-        const objects = canvas.getObjects();
-        let displayCount = 0;
-        
-        [...objects].reverse().forEach((obj, i) => {
-            if (obj === cropRect) return; // Hide crop rect
-            displayCount++;
-            let typeName = 'Drawing';
-            if (obj.type === 'rect') typeName = 'Rectangle';
-            if (obj.type === 'ellipse') typeName = 'Ellipse';
-            if (obj.type === 'line') typeName = 'Line';
-            if (obj.type === 'arrow') typeName = 'Arrow';
-            if (obj.type === 'i-text') typeName = 'Text';
-            
-            const color = obj.stroke || obj.fill || '#000000';
-            
-            const item = document.createElement('div');
-            item.style.display = 'flex';
-            item.style.alignItems = 'center';
-            item.style.justifyContent = 'space-between';
-            item.style.padding = '8px 0';
-            
-            item.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" checked style="accent-color: var(--text-main);">
-                    <span style="font-size: 13px; font-weight: 500;">${typeName}</span>
-                </div>
-                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${color === 'transparent' ? 'white' : color}; border: 1px solid var(--border-color);"></div>
-            `;
-            
-            objectsList.appendChild(item);
-        });
-        
-        if (objectsCount) objectsCount.textContent = displayCount;
-        if (emptyState) emptyState.style.display = displayCount > 0 ? 'none' : 'flex';
+      };
+      item.querySelector('.delete-btn').onclick = () => {
+        canvas.remove(obj);
+        saveHistory();
+      };
+      
+      objectsList.appendChild(item);
     }
     
-    // Save/Export Logic
-    const saveImgBtn = document.querySelector('.toolbar-section.right button:nth-child(3)');
-    if (saveImgBtn) {
-        saveImgBtn.addEventListener('click', () => {
-            const origZoom = currentZoom;
-            canvas.setZoom(1);
-            if (canvas.backgroundImage) {
-                canvas.setWidth(canvas.backgroundImage.width);
-                canvas.setHeight(canvas.backgroundImage.height);
-            }
-            
-            const dataUrl = canvas.toDataURL({ format: 'png' });
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = 'lumina_edited_screenshot.png';
-            a.click();
-            
-            setZoomToFit(); // Restore zoom
-        });
+    if(objectsCount) objectsCount.innerText = count;
+    if(objectsEmpty) objectsEmpty.style.display = count === 0 ? 'block' : 'none';
+  }
+
+  // Export
+  function getFinalDataURL() {
+    const origVpt = canvas.viewportTransform;
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    if (canvas.backgroundImage) {
+      canvas.setWidth(canvas.backgroundImage.width);
+      canvas.setHeight(canvas.backgroundImage.height);
     }
+    canvas.discardActiveObject();
+    if(cropRect) cropRect.visible = false;
+    canvas.renderAll();
+    
+    const dataURL = canvas.toDataURL({ format: 'png' });
+    
+    resizeCanvas();
+    canvas.setViewportTransform(origVpt);
+    if(cropRect) cropRect.visible = true;
+    canvas.renderAll();
+    
+    return dataURL;
+  }
+
+  // Export buttons - matched by position in the right toolbar section
+  const rightSection = document.querySelector('.toolbar-section.right');
+  if (rightSection) {
+    const exportBtns = rightSection.querySelectorAll('.icon-btn');
+    
+    // Copy (1st button)
+    if (exportBtns[0]) exportBtns[0].addEventListener('click', async () => {
+      try {
+        const dataURL = getFinalDataURL();
+        const blob = await (await fetch(dataURL)).blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]);
+        alert('Copied to clipboard!');
+      } catch (err) {
+        alert('Failed to copy: ' + err);
+      }
+    });
+
+    // PDF (2nd button)
+    if (exportBtns[1]) exportBtns[1].addEventListener('click', () => {
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        alert('jsPDF library not loaded');
+        return;
+      }
+      const dataURL = getFinalDataURL();
+      const img = new Image();
+      img.onload = () => {
+        const pdf = new window.jspdf.jsPDF({
+          orientation: img.width > img.height ? 'landscape' : 'portrait',
+          unit: 'px',
+          format: [img.width, img.height]
+        });
+        pdf.addImage(dataURL, 'PNG', 0, 0, img.width, img.height);
+        pdf.save('Lumina-Annotation.pdf');
+      };
+      img.src = dataURL;
+    });
+
+    // Save Image (3rd button)
+    if (exportBtns[2]) exportBtns[2].addEventListener('click', () => {
+      const dataURL = getFinalDataURL();
+      const a = document.createElement('a');
+      a.href = dataURL;
+      a.download = 'Lumina-Screenshot.png';
+      a.click();
+    });
+  }
+
 });
