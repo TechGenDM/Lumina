@@ -95,9 +95,15 @@ function generateFilterRegionDataURL(rect, type, bgImg) {
     const block = 10;
     const w = rect.width;
     const h = rect.height;
-    ctx.drawImage(bgImg, rect.left, rect.top, w, h, 0, 0, w / block, h / block);
+    
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = w / block;
+    tempCanvas.height = h / block;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(bgImg, rect.left, rect.top, w, h, 0, 0, w / block, h / block);
+    
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(canvas, 0, 0, w / block, h / block, 0, 0, w, h);
+    ctx.drawImage(tempCanvas, 0, 0, w / block, h / block, 0, 0, w, h);
   }
   return canvas.toDataURL('image/png');
 }
@@ -257,6 +263,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       isHistoryAction = true;
       historyIndex--;
       canvas.loadFromJSON(history[historyIndex], () => {
+        if (canvas.backgroundImage) {
+          bgImageElement = canvas.backgroundImage.getElement();
+        }
         canvas.renderAll();
         isHistoryAction = false;
         updateObjectsList();
@@ -269,6 +278,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       isHistoryAction = true;
       historyIndex++;
       canvas.loadFromJSON(history[historyIndex], () => {
+        if (canvas.backgroundImage) {
+          bgImageElement = canvas.backgroundImage.getElement();
+        }
         canvas.renderAll();
         isHistoryAction = false;
         updateObjectsList();
@@ -617,6 +629,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         evented: false,
         isTemporaryFilterRect: true
       });
+    } else if (activeTool === 'Solid') {
+      currentShape = new fabric.Rect({
+        left: startX, top: startY, width: 0, height: 0,
+        fill: currentColor,
+        stroke: null,
+        strokeWidth: 0,
+        selectable: false,
+        evented: false
+      });
     }
 
     if (currentShape) canvas.add(currentShape);
@@ -626,7 +647,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!isDrawingShape || !currentShape || activeTool === 'Pointer' || activeTool === 'Crop') return;
     const pointer = canvas.getPointer(opt.e);
     
-    if (activeTool === 'Rectangle' || activeTool === 'RoundedRectangle' || activeTool === 'Blur' || activeTool === 'Pixelate') {
+    if (activeTool === 'Rectangle' || activeTool === 'RoundedRectangle' || activeTool === 'Blur' || activeTool === 'Pixelate' || activeTool === 'Solid') {
       currentShape.set({
         left: Math.min(startX, pointer.x),
         top: Math.min(startY, pointer.y),
