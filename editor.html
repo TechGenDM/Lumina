@@ -208,23 +208,17 @@
             flex: 1;
             background: var(--bg-color);
             position: relative;
-            overflow: auto;
-            display: flex;
-            padding: 40px;
+            overflow: hidden;
+            display: block;
         }
 
         #image-wrapper {
-            margin: auto;
-            position: relative;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-            border-radius: 8px;
-            transition: transform 0.2s ease;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
         }
 
         #main-canvas {
-            max-width: 100%;
-            max-height: 100%;
-            border-radius: 8px;
+            /* Fabric handles dimensions */
         }
     </style>
 </head>
@@ -295,86 +289,53 @@
     </div>
 
     <div class="workspace">
-        <div class="left-sidebar">
-            <!-- Pointer (Active) -->
-            <button class="tool-btn active" title="Pointer">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
-                </svg>
+                <div class="left-sidebar">
+            <button class="tool-btn active" title="Pointer (V)" data-tool="Pointer">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" /></svg>
             </button>
-            <!-- Crop -->
-            <button class="tool-btn" title="Crop">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v12m-6-6H6V6m12 12v-6m-6 6v6m0-6H6" />
-                </svg>
+            <button class="tool-btn" title="Crop" data-tool="Crop">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12v12m-6-6H6V6m12 12v-6m-6 6v6m0-6H6" /></svg>
             </button>
-            <!-- Rectangle -->
-            <button class="tool-btn" title="Rectangle">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <rect x="4" y="4" width="16" height="16" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+            <div style="width: 32px; height: 1px; background: var(--border-color); margin: 4px 0;"></div>
+            <button class="tool-btn" title="Rectangle (R)" data-tool="Rectangle">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="4" y="4" width="16" height="16" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
-            <!-- Circle -->
-            <button class="tool-btn" title="Circle">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <circle cx="12" cy="12" r="8" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+            <button class="tool-btn" title="Rounded Rectangle" data-tool="RoundedRectangle">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="4" ry="4" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
-            <!-- Arrow -->
-            <button class="tool-btn" title="Arrow">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
-                </svg>
+            <button class="tool-btn" title="Ellipse (C)" data-tool="Circle">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="8" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
-            <!-- Line -->
-            <button class="tool-btn" title="Line">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 19L19 5" />
-                </svg>
+            <button class="tool-btn" title="Arrow (A)" data-tool="Arrow">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" /></svg>
             </button>
-            <!-- Text -->
-            <button class="tool-btn" title="Text">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M12 7v12M9 19h6" />
-                </svg>
+            <button class="tool-btn" title="Line (L)" data-tool="Line">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19L19 5" /></svg>
             </button>
-            <!-- Highlight -->
-            <button class="tool-btn" title="Highlight">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
+            <button class="tool-btn" title="Pen (P)" data-tool="Pen">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16 3l5 5-11 11H5v-5L16 3z" /><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l5 5" /></svg>
             </button>
-            <!-- Blur/Hide -->
-            <button class="tool-btn" title="Hide/Blur">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                </svg>
+            <button class="tool-btn" title="Highlight (H)" data-tool="Highlight">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
             </button>
-            <!-- Focus/Target -->
-            <button class="tool-btn" title="Focus">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 12a5 5 0 1 1 10 0 5 5 0 0 1-10 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3" />
-                </svg>
+            <div style="width: 32px; height: 1px; background: var(--border-color); margin: 4px 0;"></div>
+            <button class="tool-btn" title="Text (T)" data-tool="Text">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 7h14M12 7v12M9 19h6" /></svg>
             </button>
-            <!-- Pen -->
-            <button class="tool-btn" title="Pen">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 3l5 5-11 11H5v-5L16 3z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l5 5" />
-                </svg>
+            <button class="tool-btn" title="Number Marker (N)" data-tool="NumberMarker">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" font-size="12" fill="currentColor" stroke="none" font-weight="bold">1</text></svg>
             </button>
-            <!-- Brush -->
-            <button class="tool-btn" title="Brush">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.879-3.879a3 3 0 10-4.242-4.242l-3.879 3.879a15.996 15.996 0 00-4.648 4.764z" />
-                </svg>
+            <button class="tool-btn" title="Blur (B)" data-tool="Blur">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+            </button>
+            <button class="tool-btn" title="Pixelate" data-tool="Pixelate">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM4 10h4v4H4zM10 10h4v4h-4zM16 10h4v4h-4zM4 16h4v4H4zM10 16h4v4h-4zM16 16h4v4h-4z" /></svg>
             </button>
         </div>
         
         <!-- Canvas Area -->
-        <div class="canvas-container" style="flex: 1; background: var(--bg-color); position: relative; overflow: auto; display: flex; padding: 40px;" id="canvas-container-outer">
-            <div id="image-wrapper" style="margin: auto; position: relative; box-shadow: 0 8px 30px rgba(0,0,0,0.12); border-radius: 8px; transition: transform 0.2s ease;">
+        <div class="canvas-container" id="canvas-container-outer">
+            <div id="image-wrapper">
                 <canvas id="main-canvas"></canvas>
                 
                 <!-- Dark Crop Overlay -->
@@ -388,79 +349,144 @@
         </div>
         
         <!-- Floating Crop Actions -->
-        <div id="crop-action-bar" style="display: none; position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); gap: 8px; background: white; padding: 6px; border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); z-index: 100;">
-            <button id="btn-cancel-crop" style="border: 1px solid var(--border-color); background: transparent; padding: 10px 20px; border-radius: 20px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--text-main);">Cancel</button>
-            <button id="btn-apply-crop" style="background: #1d1d1f; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: 600; font-size: 14px; cursor: pointer;">Apply crop</button>
+        <div id="crop-action-bar" style="display: none; position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); gap: 8px; background: white; padding: 6px 16px; border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); z-index: 100; align-items: center;">
+            <div style="display: flex; gap: 4px; padding-right: 16px; border-right: 1px solid var(--border-color);">
+                <button class="crop-aspect-btn active" data-aspect="free" style="background: transparent; border: none; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 12px;">Free</button>
+                <button class="crop-aspect-btn" data-aspect="16:9" style="background: transparent; border: none; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 12px;">16:9</button>
+                <button class="crop-aspect-btn" data-aspect="4:3" style="background: transparent; border: none; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 12px;">4:3</button>
+                <button class="crop-aspect-btn" data-aspect="1:1" style="background: transparent; border: none; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 12px;">1:1</button>
+            </div>
+            <button id="btn-cancel-crop" style="border: 1px solid var(--border-color); background: transparent; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 13px; cursor: pointer; color: var(--text-main);">Cancel</button>
+            <button id="btn-apply-crop" style="background: #1d1d1f; color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 13px; cursor: pointer;">Apply crop</button>
         </div>
         
-        <!-- Right Sidebar (Properties) -->
-        <div class="right-sidebar" style="width: 260px; background: var(--sidebar-bg); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;">
+                <!-- Right Sidebar (Properties) -->
+        <div class="right-sidebar" style="width: 280px; background: var(--sidebar-bg); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;">
             
             <!-- Default State -->
             <div id="rs-default" style="padding: 20px; border-bottom: 1px solid var(--border-color);">
                 <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">Select an object<br>to edit its style.</p>
+                <div style="margin-top: 20px;">
+                    <button id="btn-reset-markers" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500;">Reset Number Markers</button>
+                </div>
             </div>
 
-            <!-- Properties Panel (Hidden by default) -->
-            <div id="rs-properties" style="display: none; flex-direction: column; padding: 20px; border-bottom: 1px solid var(--border-color);">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
-                    <div id="rs-prop-icon"></div>
-                    <h3 id="rs-prop-title" style="font-size: 14px; font-weight: 600;">Tool</h3>
-                </div>
-
-                <!-- Color -->
-                <div id="rs-color-section" style="margin-bottom: 20px;">
-                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Color</label>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="color-swatch active" style="background: #000000;"></button>
-                        <button class="color-swatch" style="background: #FF3B30;"></button>
-                        <button class="color-swatch" style="background: #FFCC00;"></button>
-                        <button class="color-swatch" style="background: #34C759;"></button>
-                        <button class="color-swatch" style="background: #8E8E93;"></button>
-                        <button class="color-swatch" style="background: conic-gradient(red, yellow, green, cyan, blue, magenta, red);"></button>
+            <!-- Properties Panel -->
+            <div id="rs-properties" style="display: none; flex-direction: column; padding: 20px; border-bottom: 1px solid var(--border-color); gap: 24px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div id="rs-prop-icon"></div>
+                        <h3 id="rs-prop-title" style="font-size: 14px; font-weight: 600;">Tool</h3>
+                    </div>
+                    <div style="display: flex; gap: 4px;">
+                        <button id="btn-bring-forward" title="Bring Forward" style="border: none; background: transparent; cursor: pointer; color: var(--text-muted);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg></button>
+                        <button id="btn-send-backward" title="Send Backward" style="border: none; background: transparent; cursor: pointer; color: var(--text-muted);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4"/></svg></button>
                     </div>
                 </div>
 
-                <!-- Thickness -->
-                <div id="rs-thickness-section" style="margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Thickness</label>
-                        <span id="rs-thickness-val" style="font-size: 11px; font-weight: 600;">4 px</span>
+                <!-- Transform Section -->
+                <div>
+                    <h4 style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px;">Transform</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="font-size: 10px; color: var(--text-muted);">X</label>
+                            <input type="number" id="rs-input-x" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="font-size: 10px; color: var(--text-muted);">Y</label>
+                            <input type="number" id="rs-input-y" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="font-size: 10px; color: var(--text-muted);">W</label>
+                            <input type="number" id="rs-input-w" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="font-size: 10px; color: var(--text-muted);">H</label>
+                            <input type="number" id="rs-input-h" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; grid-column: span 2;">
+                            <label style="font-size: 10px; color: var(--text-muted);">Rotation (°)</label>
+                            <input type="number" id="rs-input-rot" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none;">
+                        </div>
                     </div>
-                    <input type="range" id="rs-thickness-slider" min="1" max="20" value="4" style="width: 100%;">
                 </div>
 
-                <!-- Fill -->
-                <div id="rs-fill-section" style="margin-bottom: 20px;">
-                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Fill</label>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="fill-swatch active no-fill" title="No Fill">
-                            <svg viewBox="0 0 24 24" stroke="red" stroke-width="2" style="width: 100%; height: 100%;"><line x1="2" y1="22" x2="22" y2="2"/></svg>
-                        </button>
-                        <button class="fill-swatch" style="background: #000000;"></button>
-                        <button class="fill-swatch" style="background: #FF3B30;"></button>
-                        <button class="fill-swatch" style="background: #FFCC00;"></button>
-                        <button class="fill-swatch" style="background: #34C759;"></button>
-                        <button class="fill-swatch" style="background: #FFFFFF; border: 1px solid var(--border-color);"></button>
+                <!-- Appearance Section -->
+                <div>
+                    <h4 style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px;">Appearance</h4>
+                    
+                    <div id="rs-color-section" style="margin-bottom: 16px;">
+                        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 8px;">Stroke / Text Color</label>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="color-swatch active" style="background: #000000;"></button>
+                            <button class="color-swatch" style="background: #FF3B30;"></button>
+                            <button class="color-swatch" style="background: #FFCC00;"></button>
+                            <button class="color-swatch" style="background: #34C759;"></button>
+                            <button class="color-swatch" style="background: #007AFF;"></button>
+                            <button class="color-swatch" style="background: #8E8E93;"></button>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Corner Radius -->
-                <div id="rs-radius-section" style="margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Corner Radius</label>
-                        <span id="rs-radius-val" style="font-size: 11px; font-weight: 600;">0 px</span>
+                    <div id="rs-fill-section" style="margin-bottom: 16px;">
+                        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 8px;">Fill</label>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="fill-swatch active no-fill" title="No Fill">
+                                <svg viewBox="0 0 24 24" stroke="red" stroke-width="2" style="width: 100%; height: 100%;"><line x1="2" y1="22" x2="22" y2="2"/></svg>
+                            </button>
+                            <button class="fill-swatch" style="background: #000000;"></button>
+                            <button class="fill-swatch" style="background: #FF3B30;"></button>
+                            <button class="fill-swatch" style="background: #FFCC00;"></button>
+                            <button class="fill-swatch" style="background: #34C759;"></button>
+                            <button class="fill-swatch" style="background: #007AFF;"></button>
+                        </div>
                     </div>
-                    <input type="range" id="rs-radius-slider" min="0" max="50" value="0" style="width: 100%;">
-                </div>
 
-                <!-- Arrowheads -->
-                <div id="rs-arrowheads-section" style="margin-bottom: 20px; display: none;">
-                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 10px;">Arrowheads</label>
-                    <div style="display: flex; background: var(--bg-color); border-radius: 6px; padding: 2px;">
-                        <button class="toggle-btn active" style="flex: 1; font-size: 12px; padding: 6px 0;">One end</button>
-                        <button class="toggle-btn" style="flex: 1; font-size: 12px; padding: 6px 0;">Both</button>
+                    <div id="rs-opacity-section" style="margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <label style="font-size: 11px; color: var(--text-muted);">Opacity</label>
+                            <span id="rs-opacity-val" style="font-size: 11px; font-weight: 600;">100%</span>
+                        </div>
+                        <input type="range" id="rs-opacity-slider" min="0" max="100" value="100" style="width: 100%;">
                     </div>
+
+                    <div id="rs-thickness-section" style="margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <label style="font-size: 11px; color: var(--text-muted);">Stroke Width</label>
+                            <span id="rs-thickness-val" style="font-size: 11px; font-weight: 600;">4 px</span>
+                        </div>
+                        <input type="range" id="rs-thickness-slider" min="1" max="20" value="4" style="width: 100%;">
+                    </div>
+
+                    <div id="rs-radius-section" style="margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <label style="font-size: 11px; color: var(--text-muted);">Corner Radius</label>
+                            <span id="rs-radius-val" style="font-size: 11px; font-weight: 600;">0 px</span>
+                        </div>
+                        <input type="range" id="rs-radius-slider" min="0" max="50" value="0" style="width: 100%;">
+                    </div>
+                    
+                    <div id="rs-font-section" style="margin-bottom: 16px; display: none;">
+                        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 8px;">Font Size</label>
+                        <input type="number" id="rs-input-fontsize" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none; width: 100%; margin-bottom: 8px;">
+                        
+                        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 8px;">Font Family</label>
+                        <select id="rs-input-fontfamily" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; outline: none; width: 100%; margin-bottom: 12px;">
+                            <option value="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif">System / SF Pro</option>
+                            <option value="Arial">Arial</option>
+                            <option value="Courier New">Monospace</option>
+                            <option value="Georgia">Serif</option>
+                        </select>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <label style="font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="rs-input-textbg" style="accent-color: var(--text-main);"> Background Highlight
+                            </label>
+                            <label style="font-size: 12px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="rs-input-textshadow" style="accent-color: var(--text-main);"> Drop Shadow
+                            </label>
+                        </div>
+                    </div>
+
                 </div>
             </div>
             
@@ -494,6 +520,7 @@
         <span>https://www.coursera.org/specializations/mathematics-machine-learning</span>
     </div>
     
+    <script src="jspdf.umd.min.js"></script>
     <script src="fabric.min.js"></script>
     <script src="editor.js"></script>
 </body>
