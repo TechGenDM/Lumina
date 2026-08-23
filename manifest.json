@@ -16,6 +16,9 @@
     "storage",
     "unlimitedStorage"
   ],
+  "host_permissions": [
+    "https://api.emailjs.com/*"
+  ],
   "action": {
     "default_title": "Take Full-Page Screenshot",
     "default_icon": {

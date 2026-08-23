@@ -381,6 +381,24 @@
             margin-bottom: 16px;
         }
 
+        .modal-content input[type="email"] {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--btn-secondary-border);
+            background: var(--btn-secondary-bg);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 13px;
+            margin-bottom: 12px;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .modal-content input[type="email"]:focus {
+            border-color: var(--apple-blue);
+        }
+
         .modal-content textarea {
             width: 100%;
             padding: 12px;
@@ -389,10 +407,10 @@
             background: var(--btn-secondary-bg);
             color: var(--text-main);
             font-family: inherit;
-            font-size: 14px;
+            font-size: 13px;
             resize: vertical;
             min-height: 100px;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
             outline: none;
             transition: border-color 0.2s ease;
         }
@@ -401,8 +419,25 @@
             border-color: var(--apple-blue);
         }
 
+        .report-status-msg {
+            font-size: 12px;
+            margin-bottom: 14px;
+            min-height: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .report-status-msg.error {
+            color: #ff3b30;
+        }
+
+        .report-status-msg.success {
+            color: #34c759;
+            font-weight: 500;
+        }
+
         .modal-actions {
             display: flex;
+            align-items: center;
             justify-content: flex-end;
             gap: 12px;
         }
@@ -494,7 +529,9 @@
         <div class="modal-content">
             <h2>Report an Issue</h2>
             <p>Please describe the issue you are experiencing:</p>
+            <input type="email" id="report-user-email" placeholder="Your email (optional, for reply)">
             <textarea id="issue-description" rows="5" placeholder="Enter details here..."></textarea>
+            <div id="report-status" class="report-status-msg"></div>
             <div class="modal-actions">
                 <button id="cancel-report" class="btn btn-secondary">Cancel</button>
                 <button id="send-report" class="btn btn-primary">Send report</button>
