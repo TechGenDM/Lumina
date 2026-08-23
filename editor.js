@@ -643,8 +643,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         left: Math.min(startX, pointer.x),
         top: Math.min(startY, pointer.y),
         rx: rx,
-        ry: ry
+        ry: ry,
+        width: rx * 2,
+        height: ry * 2
       });
+      currentShape.setCoords();
     } else if (activeTool === 'Line' || activeTool === 'Arrow') {
       currentShape.set({ x2: pointer.x, y2: pointer.y });
     }
