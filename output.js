@@ -253,8 +253,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Configuration for EmailJS
     const EMAILJS_CONFIG = {
         serviceId: 'service_12guf7m',        // Your Gmail Service ID from EmailJS
-        templateId: 'YOUR_TEMPLATE_ID',      // Replace with your EmailJS Template ID (from Email Templates tab)
-        publicKey: 'YOUR_PUBLIC_KEY',        // Replace with your EmailJS Public Key (from Account > API Keys)
+        templateId: 'template_ticwuwe',      // Replace with your EmailJS Template ID (from Email Templates tab)
+        publicKey: 'ols5C-n3p1zJL6m63',      // Replace with your EmailJS Public Key (from Account > API Keys)
         recipientEmail: 'devasishmishra74@gmail.com'
     };
 
