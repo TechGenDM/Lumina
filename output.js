@@ -330,7 +330,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             sendReport.disabled = true;
             sendReport.innerHTML = '<span style="display:inline-block;animation:mac-spin 1s linear infinite;margin-right:6px;">↻</span> Sending...';
             if (reportStatus) {
-                reportStatus.textContent = 'Sending report directly to devasishmishra74@gmail.com...';
+                reportStatus.textContent = 'Sending report...';
                 reportStatus.className = 'report-status-msg';
             }
 
@@ -360,7 +360,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (response.ok) {
                     if (reportStatus) {
-                        reportStatus.textContent = '✓ Report sent directly to devasishmishra74@gmail.com! Thank you.';
+                        reportStatus.textContent = '✓ Report sent successfully! Thank you.';
                         reportStatus.className = 'report-status-msg success';
                     }
                     sendReport.innerHTML = '✓ Sent!';
@@ -372,8 +372,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } else {
                     const errText = await response.text();
                     console.error('EmailJS Error:', errText);
+                    // Build a pre-filled mailto: fallback link
+                    const mailSubject = encodeURIComponent('Lumina Issue Report');
+                    const mailBody = encodeURIComponent(`Issue:\n${description}\n\nBrowser: ${navigator.userAgent}\nTime: ${new Date().toLocaleString()}`);
+                    const mailtoLink = `mailto:${EMAILJS_CONFIG.recipientEmail}?subject=${mailSubject}&body=${mailBody}`;
                     if (reportStatus) {
-                        reportStatus.textContent = `Failed to send: ${errText || 'Please verify EmailJS Template ID / Public Key'}`;
+                        reportStatus.innerHTML = `Service temporarily unavailable. <a href="${mailtoLink}" style="color:#4fc3f7;text-decoration:underline;">Click here to email us directly instead.</a>`;
                         reportStatus.className = 'report-status-msg error';
                     }
                     sendReport.disabled = false;
@@ -381,8 +385,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             } catch (err) {
                 console.error('Network Error sending report:', err);
+                const mailSubject = encodeURIComponent('Lumina Issue Report');
+                const mailBody = encodeURIComponent(`Issue:\n${issueDescription.value.trim()}\n\nBrowser: ${navigator.userAgent}`);
+                const mailtoLink = `mailto:${EMAILJS_CONFIG.recipientEmail}?subject=${mailSubject}&body=${mailBody}`;
                 if (reportStatus) {
-                    reportStatus.textContent = 'Network error while sending report. Please try again.';
+                    reportStatus.innerHTML = `Network error. <a href="${mailtoLink}" style="color:#4fc3f7;text-decoration:underline;">Click here to email us directly instead.</a>`;
                     reportStatus.className = 'report-status-msg error';
                 }
                 sendReport.disabled = false;
