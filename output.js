@@ -44,20 +44,81 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     let imageDataUrl = null;
+    let imageMeta = null;
     let currentZoom = 1;
     let originalWidth = 0;
-    
-    try {
+
+    // Plain-language explanations for the error codes sent by background.js
+    const ERROR_MESSAGES = {
+        restricted: ['This page can\'t be captured', 'Chrome doesn\'t let extensions capture its own pages (like chrome:// pages, the New Tab page or the Chrome Web Store). Open a normal website and click the Lumina icon again.'],
+        file: ['Lumina needs permission for local files', 'To capture a file:// page, open chrome://extensions, click Details on Lumina and turn on "Allow access to file URLs". Then try again.'],
+        pdf: ['PDF files can\'t be captured', 'Chrome\'s built-in PDF viewer can\'t be captured as a full page. Use the viewer\'s own download or print button instead.'],
+        busy: ['Another tool is already attached to this tab', 'Close DevTools or any other extension that is debugging this tab, then click the Lumina icon again.'],
+        cancelled: ['Capture was cancelled', 'The capture stopped before it finished, usually because the tab was closed or "Cancel" was clicked on Chrome\'s debugging bar. Click the Lumina icon to try again.'],
+        'too-large': ['This page is too large to capture', 'The screenshot was too big to hand over to the viewer. Try a shorter page.'],
+        failed: ['Capture failed', 'Something went wrong while capturing this page. Reload the page, wait for it to finish loading and try again. If it keeps happening, use the report button in the top right.']
+    };
+
+    function showMessage(title, detail) {
+        loadingText.textContent = '';
+        const h = document.createElement('p');
+        h.className = 'state-title';
+        h.textContent = title;
+        loadingText.appendChild(h);
+        if (detail) {
+            const d = document.createElement('p');
+            d.className = 'state-detail';
+            d.textContent = detail;
+            loadingText.appendChild(d);
+        }
+    }
+
+    function setActionsEnabled(enabled) {
+        [btnPng, btnPdf, btnCopy, document.getElementById('edit-btn')].forEach(btn => {
+            if (btn) btn.disabled = !enabled;
+        });
+    }
+
+    // "My Page Title" -> "Lumina_My-Page-Title_2026-01-31_14-05-09"
+    function buildFileBase() {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+        const title = ((imageMeta && imageMeta.title) || '')
+            .replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+        return title ? `Lumina_${title}_${stamp}` : `Lumina_${stamp}`;
+    }
+
+    setActionsEnabled(false);
+    const errorCode = new URLSearchParams(window.location.search).get('error');
+
+    if (errorCode) {
+        const [title, detail] = ERROR_MESSAGES[errorCode] || ERROR_MESSAGES.failed;
+        showMessage(title, detail);
+    } else try {
         // Fetch screenshot from storage
-        const data = await chrome.storage.local.get('screenshotData');
-        
+        const data = await chrome.storage.local.get(['screenshotData', 'screenshotMeta']);
+
         if (data.screenshotData) {
             imageDataUrl = data.screenshotData;
-            
-            // Set image source and wait for it to load
-            previewImg.src = imageDataUrl;
-            
+            imageMeta = data.screenshotMeta || null;
+
+            previewImg.onerror = () => {
+                imageDataUrl = null;
+                showMessage('Failed to load screenshot', 'The captured image could not be displayed. Please capture the page again.');
+            };
+
             previewImg.onload = () => {
+                setActionsEnabled(true);
+
+                const notice = document.getElementById('capture-notice');
+                if (notice && imageMeta && (imageMeta.truncated || imageMeta.downscaled)) {
+                    notice.textContent = imageMeta.truncated
+                        ? 'This page is longer than Chrome can capture in one image (16,384 px), so the bottom was cut off.'
+                        : 'This page is very long, so it was captured at standard (1x) resolution to fit in one image.';
+                    notice.style.display = 'block';
+                }
+
                 const loadingUI = document.getElementById('loading');
                 loadingUI.style.opacity = '0';
                 setTimeout(() => { loadingUI.style.display = 'none'; }, 300);
@@ -85,14 +146,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateZoom();
             };
 
-            // Clear from storage immediately to free memory
-            await chrome.storage.local.remove('screenshotData');
+            // Set image source (after the handlers are attached) and wait for it to load
+            previewImg.src = imageDataUrl;
+
+            // Clear from storage immediately: the screenshot now only lives in this tab's memory
+            await chrome.storage.local.remove(['screenshotData', 'screenshotMeta']);
         } else {
-            loadingText.innerHTML = 'No screenshot found.';
+            showMessage('No screenshot here', 'Screenshots are kept only while this tab is open, so nothing is left after a reload. Go to the page you want and click the Lumina icon to capture it again.');
         }
     } catch (error) {
         console.error('Error loading screenshot:', error);
-        loadingText.innerHTML = 'Failed to load screenshot.';
+        showMessage('Failed to load screenshot', 'Please capture the page again.');
     }
 
     // --- ZOOM LOGIC ---
@@ -132,13 +196,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- ACTIONS ---
 
     // Download PNG Action
-    btnPng.addEventListener('click', () => {
+    btnPng.addEventListener('click', async () => {
         if (!imageDataUrl) return;
-        chrome.downloads.download({
-            url: imageDataUrl,
-            filename: `screenshot_${Date.now()}.png`,
-            saveAs: true
-        });
+        try {
+            // A blob: URL is used because very large data: URLs can fail in the downloads API
+            const blob = await (await fetch(imageDataUrl)).blob();
+            const blobUrl = URL.createObjectURL(blob);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+            await chrome.downloads.download({
+                url: blobUrl,
+                filename: `${buildFileBase()}.png`,
+                saveAs: true
+            });
+        } catch (err) {
+            // "Save As" dialog dismissed by the user is not an error worth reporting
+            if (!/cancel/i.test(String(err && err.message))) {
+                console.error('Failed to save PNG:', err);
+                alert('Could not save the image. Please try again.');
+            }
+        }
     });
 
     // Copy to Clipboard Action
@@ -169,7 +245,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             
         } catch (err) {
             console.error('Failed to copy: ', err);
-            alert('Failed to copy to clipboard. Ensure you have given clipboard permissions.');
+            alert('Could not copy the image to the clipboard. Very large screenshots may be too big to copy. Try Save PNG instead.');
         }
     });
 
@@ -217,16 +293,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 
                 const orientation = width > height ? 'l' : 'p';
-                
+
+                // A PDF page cannot be larger than 14,400 pt (jsPDF's "px" unit is 0.75 pt).
+                // Bigger images are fitted onto a smaller page; no pixels are thrown away.
+                const maxPagePx = 14400 / 0.75;
+                const fit = Math.min(1, maxPagePx / Math.max(width, height));
+                const pageW = width * fit;
+                const pageH = height * fit;
+
                 const doc = new jsPDF({
                     orientation: orientation,
                     unit: 'px',
-                    format: [width, height],
+                    format: [pageW, pageH],
                     compress: true
                 });
-                
-                doc.addImage(finalDataUrl, imageFormat, 0, 0, width, height);
-                doc.save(`screenshot_${Date.now()}.pdf`);
+
+                doc.addImage(finalDataUrl, imageFormat, 0, 0, pageW, pageH);
+                doc.save(`${buildFileBase()}.pdf`);
             } catch (err) {
                 console.error("PDF generation failed:", err);
                 alert("An error occurred while generating the PDF.");
@@ -242,19 +325,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnEdit) {
         btnEdit.addEventListener('click', async () => {
             if (imageDataUrl) {
-                // Save the image back to storage so the editor can load it
-                await chrome.storage.local.set({ screenshotData: imageDataUrl });
-                window.location.href = 'editor.html';
+                // Save the image back to storage so the editor can load it (the editor deletes it again)
+                try {
+                    await chrome.storage.local.set({ screenshotData: imageDataUrl, screenshotMeta: imageMeta || {} });
+                    window.location.href = 'editor.html';
+                } catch (err) {
+                    console.error('Failed to open editor:', err);
+                    alert('Could not open the editor. Please try again.');
+                }
             }
         });
     }
 
     // --- REPORT ISSUE MODAL LOGIC (EmailJS Integration) ---
-    // Configuration for EmailJS
+    // Nothing below runs until the user clicks "Send report".
+    // These EmailJS IDs are public by design (EmailJS public key, not the private key).
     const EMAILJS_CONFIG = {
-        serviceId: 'service_12guf7m',        // Your Gmail Service ID from EmailJS
-        templateId: 'template_6ewzxm6',      // Replace with your EmailJS Template ID (from Email Templates tab)
-        publicKey: 'ols5C-n3p1zJL6m63',      // Replace with your EmailJS Public Key (from Account > API Keys)
+        serviceId: 'service_12guf7m',
+        templateId: 'template_6ewzxm6',
+        publicKey: 'ols5C-n3p1zJL6m63',
         recipientEmail: 'devasishmishra74@gmail.com'
     };
 
@@ -320,10 +409,32 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
-            // Check if user still has placeholder keys
-            if (EMAILJS_CONFIG.templateId === 'YOUR_TEMPLATE_ID' || EMAILJS_CONFIG.publicKey === 'YOUR_PUBLIC_KEY') {
-                console.warn('EmailJS templateId or publicKey is still set to placeholder values.');
+            if (userEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail)) {
+                if (reportStatus) {
+                    reportStatus.textContent = 'That email address doesn\'t look right. Fix it or leave it empty.';
+                    reportStatus.className = 'report-status-msg error';
+                }
+                reportUserEmail.focus();
+                return;
             }
+
+            // If sending fails, offer a pre-filled email link instead
+            const showMailFallback = (prefix) => {
+                const mailSubject = encodeURIComponent('Lumina Issue Report');
+                const mailBody = encodeURIComponent(`Issue:\n${description}\n\nBrowser: ${navigator.userAgent}\nTime: ${new Date().toLocaleString()}`);
+                const mailtoLink = `mailto:${EMAILJS_CONFIG.recipientEmail}?subject=${mailSubject}&body=${mailBody}`;
+                if (reportStatus) {
+                    reportStatus.textContent = prefix + ' ';
+                    const link = document.createElement('a');
+                    link.href = mailtoLink;
+                    link.textContent = 'Click here to email us directly instead.';
+                    link.style.cssText = 'color:#4fc3f7;text-decoration:underline;';
+                    reportStatus.appendChild(link);
+                    reportStatus.className = 'report-status-msg error';
+                }
+                sendReport.disabled = false;
+                sendReport.innerHTML = originalBtnText;
+            };
 
             // UI Sending State
             const originalBtnText = sendReport.innerHTML;
@@ -370,30 +481,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                         sendReport.innerHTML = originalBtnText;
                     }, 1800);
                 } else {
-                    const errText = await response.text();
-                    console.error('EmailJS Error:', errText);
-                    // Build a pre-filled mailto: fallback link
-                    const mailSubject = encodeURIComponent('Lumina Issue Report');
-                    const mailBody = encodeURIComponent(`Issue:\n${description}\n\nBrowser: ${navigator.userAgent}\nTime: ${new Date().toLocaleString()}`);
-                    const mailtoLink = `mailto:${EMAILJS_CONFIG.recipientEmail}?subject=${mailSubject}&body=${mailBody}`;
-                    if (reportStatus) {
-                        reportStatus.innerHTML = `Service temporarily unavailable. <a href="${mailtoLink}" style="color:#4fc3f7;text-decoration:underline;">Click here to email us directly instead.</a>`;
-                        reportStatus.className = 'report-status-msg error';
-                    }
-                    sendReport.disabled = false;
-                    sendReport.innerHTML = originalBtnText;
+                    console.error('EmailJS error:', response.status, await response.text());
+                    showMailFallback('Service temporarily unavailable.');
                 }
             } catch (err) {
-                console.error('Network Error sending report:', err);
-                const mailSubject = encodeURIComponent('Lumina Issue Report');
-                const mailBody = encodeURIComponent(`Issue:\n${issueDescription.value.trim()}\n\nBrowser: ${navigator.userAgent}`);
-                const mailtoLink = `mailto:${EMAILJS_CONFIG.recipientEmail}?subject=${mailSubject}&body=${mailBody}`;
-                if (reportStatus) {
-                    reportStatus.innerHTML = `Network error. <a href="${mailtoLink}" style="color:#4fc3f7;text-decoration:underline;">Click here to email us directly instead.</a>`;
-                    reportStatus.className = 'report-status-msg error';
-                }
-                sendReport.disabled = false;
-                sendReport.innerHTML = originalBtnText;
+                console.error('Network error sending report:', err);
+                showMailFallback('Network error.');
             }
         });
     }

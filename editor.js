@@ -83,6 +83,13 @@ let globalMarkerCounter = 1;
 let bgImageElement = null;
 
 function generateFilterRegionDataURL(rect, type, bgImg) {
+  // Work in whole pixels: fractional or zero-sized canvases throw in drawImage
+  rect = {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.max(1, Math.round(rect.width)),
+    height: Math.max(1, Math.round(rect.height))
+  };
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   canvas.width = rect.width;
@@ -96,14 +103,16 @@ function generateFilterRegionDataURL(rect, type, bgImg) {
     const w = rect.width;
     const h = rect.height;
     
+    const sw = Math.max(1, Math.round(w / block));
+    const sh = Math.max(1, Math.round(h / block));
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = w / block;
-    tempCanvas.height = h / block;
+    tempCanvas.width = sw;
+    tempCanvas.height = sh;
     const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(bgImg, rect.left, rect.top, w, h, 0, 0, w / block, h / block);
-    
+    tempCtx.drawImage(bgImg, rect.left, rect.top, w, h, 0, 0, sw, sh);
+
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(tempCanvas, 0, 0, w / block, h / block, 0, 0, w, h);
+    ctx.drawImage(tempCanvas, 0, 0, sw, sh, 0, 0, w, h);
   }
   return canvas.toDataURL('image/png');
 }
@@ -133,12 +142,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   resizeCanvas();
 
   // Zoom System
-  let currentZoom = 1;
   const zoomText = document.getElementById('zoom-percentage');
-  
+
   function updateZoomUI() {
-    const zt = document.querySelector('.toolbar-section.center span');
-    if(zt) zt.innerText = Math.round(canvas.getZoom() * 100) + '%';
+    if (zoomText) zoomText.innerText = Math.round(canvas.getZoom() * 100) + '%';
+  }
+
+  // Small confirmation / error message at the top of the editor
+  const toastEl = document.getElementById('editor-toast');
+  let toastTimer = null;
+  function showToast(message) {
+    if (!toastEl) return;
+    toastEl.textContent = message;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
   }
 
   function setZoom(scale, point) {
@@ -152,15 +170,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bg = canvas.backgroundImage;
     const scaleX = (canvas.width - padding * 2) / bg.width;
     const scaleY = (canvas.height - padding * 2) / bg.height;
-    const scale = Math.min(scaleX, scaleY, 1);
-    
+    // Tall screenshots would be unreadably small if fitted by height, so fit by
+    // width and let the user scroll, unless the whole image fits comfortably.
+    let scale = Math.min(scaleX, scaleY, 1);
+    if (scale < 0.25) scale = Math.min(scaleX, 1);
+
     canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     const center = canvas.getCenter();
     canvas.zoomToPoint(new fabric.Point(center.left, center.top), scale);
     
     const vpt = canvas.viewportTransform;
     vpt[4] = (canvas.width - bg.width * scale) / 2;
-    vpt[5] = (canvas.height - bg.height * scale) / 2;
+    vpt[5] = Math.max(padding / 2, (canvas.height - bg.height * scale) / 2);
+    canvas.setViewportTransform(vpt);
     canvas.requestRenderAll();
     updateZoomUI();
   }
@@ -245,94 +267,149 @@ document.addEventListener('DOMContentLoaded', async () => {
   let cropRect = null;
 
   // History
+  // Each entry holds the annotation objects plus a *reference* to the background
+  // image. The screenshot itself is never copied into the history, otherwise a
+  // few edits on a large capture would use hundreds of MB of memory.
   let history = [];
   let historyIndex = -1;
   let isHistoryAction = false;
+  let screenshotMeta = {};
+
+  const btnUndo = document.getElementById('btn-undo');
+  const btnRedo = document.getElementById('btn-redo');
+
+  function updateHistoryButtons() {
+    if (btnUndo) btnUndo.disabled = historyIndex <= 0;
+    if (btnRedo) btnRedo.disabled = historyIndex >= history.length - 1;
+  }
+
+  function updateStatusBar() {
+    const dims = document.getElementById('status-dimensions');
+    const bg = canvas.backgroundImage;
+    if (dims) dims.textContent = bg ? `${bg.width} × ${bg.height} px` : '';
+  }
 
   function saveHistory() {
     if (isHistoryAction) return;
+    const bg = canvas.backgroundImage;
+    canvas.backgroundImage = null; // keep the screenshot out of the JSON
     const json = canvas.toJSON(['selectable', 'evented', 'type', 'name', 'filterType', 'markerNumber', 'radius']);
+    canvas.backgroundImage = bg;
+
+    // Some actions fire two events for one change; don't record the same state twice
+    const key = JSON.stringify(json.objects);
+    const last = history[historyIndex];
+    if (last && last.bg === bg && last.key === key) return;
+
     history.splice(historyIndex + 1);
-    history.push(json);
+    history.push({ json, key, bg, markerCounter: globalMarkerCounter });
     historyIndex = history.length - 1;
+    updateHistoryButtons();
     updateObjectsList();
   }
 
-  function doUndo() {
-    if (historyIndex > 0) {
-      isHistoryAction = true;
-      historyIndex--;
-      canvas.loadFromJSON(history[historyIndex], () => {
-        if (canvas.backgroundImage) {
-          bgImageElement = canvas.backgroundImage.getElement();
-        }
-        canvas.renderAll();
-        isHistoryAction = false;
-        updateObjectsList();
-      });
-    }
+  function restoreHistory(index) {
+    if (isHistoryAction || index < 0 || index >= history.length) return;
+    isHistoryAction = true;
+    historyIndex = index;
+    const entry = history[index];
+    cleanupCrop();
+    canvas.loadFromJSON(entry.json, () => {
+      const bgChanged = bgImageElement !== (entry.bg && entry.bg.getElement());
+      canvas.backgroundImage = entry.bg;
+      bgImageElement = entry.bg ? entry.bg.getElement() : null;
+      globalMarkerCounter = entry.markerCounter;
+      isHistoryAction = false;
+      setTool(activeTool === 'Crop' ? 'Pointer' : activeTool); // re-applies selectable/evented for the current tool
+      if (bgChanged) setZoomToFit();
+      canvas.renderAll();
+      updateStatusBar();
+      updateHistoryButtons();
+      updateObjectsList();
+    });
   }
 
-  function doRedo() {
-    if (historyIndex < history.length - 1) {
-      isHistoryAction = true;
-      historyIndex++;
-      canvas.loadFromJSON(history[historyIndex], () => {
-        if (canvas.backgroundImage) {
-          bgImageElement = canvas.backgroundImage.getElement();
-        }
-        canvas.renderAll();
-        isHistoryAction = false;
-        updateObjectsList();
-      });
+  function doUndo() { restoreHistory(historyIndex - 1); }
+  function doRedo() { restoreHistory(historyIndex + 1); }
+
+  btnUndo?.addEventListener('click', doUndo);
+  btnRedo?.addEventListener('click', doRedo);
+
+  canvas.on('object:modified', (e) => { if (e.target !== cropRect) saveHistory(); });
+  canvas.on('path:created', (e) => {
+    // Free-drawn strokes should not be selectable while a drawing tool is active
+    if (e.path) e.path.set({ selectable: activeTool === 'Pointer', evented: activeTool === 'Pointer' });
+    saveHistory();
+  });
+  canvas.on('text:editing:exited', (e) => {
+    if (e.target && !e.target.text.trim()) canvas.remove(e.target); // drop empty text boxes
+    saveHistory();
+  });
+
+  // Renders the screenshot plus all annotations at full resolution, without
+  // touching the on-screen canvas size or zoom.
+  function exportFullImage() {
+    const bg = canvas.backgroundImage;
+    if (!bg) return null;
+    const active = canvas.getActiveObject();
+    if (active && active.isEditing) active.exitEditing();
+    canvas.discardActiveObject();
+
+    const origVpt = canvas.viewportTransform.slice();
+    if (cropRect) cropRect.visible = false;
+    canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    let dataURL;
+    try {
+      dataURL = canvas.toDataURL({ format: 'png', left: 0, top: 0, width: bg.width, height: bg.height });
+    } finally {
+      if (cropRect) cropRect.visible = true;
+      canvas.setViewportTransform(origVpt);
+      canvas.requestRenderAll();
     }
+    return dataURL;
   }
-
-  document.getElementById('btn-undo')?.addEventListener('click', doUndo);
-  document.getElementById('btn-redo')?.addEventListener('click', doRedo);
-
-  canvas.on('object:modified', saveHistory);
-  canvas.on('path:created', saveHistory);
 
   // Back Button
   document.getElementById('btn-back')?.addEventListener('click', async () => {
-    const origVpt = canvas.viewportTransform;
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    if (canvas.backgroundImage) {
-      canvas.setWidth(canvas.backgroundImage.width);
-      canvas.setHeight(canvas.backgroundImage.height);
+    try {
+      const dataURL = exportFullImage();
+      if (dataURL) {
+        await chrome.storage.local.set({ screenshotData: dataURL, screenshotMeta });
+      }
+      window.location.href = 'output.html';
+    } catch (err) {
+      console.error('Failed to return to the viewer:', err);
+      showToast('Could not go back. Save your image first, then try again.');
     }
-    canvas.discardActiveObject();
-    if(cropRect) cropRect.visible = false;
-    canvas.renderAll();
-    
-    const dataURL = canvas.toDataURL({ format: 'png' });
-    
-    // Restore
-    resizeCanvas();
-    canvas.setViewportTransform(origVpt);
-    if(cropRect) cropRect.visible = true;
-    canvas.renderAll();
-
-    await chrome.storage.local.set({ screenshotData: dataURL });
-    window.location.href = 'output.html';
   });
 
   // Load Image
-  chrome.storage.local.get('screenshotData', (data) => {
-    if (data.screenshotData) {
-      fabric.Image.fromURL(data.screenshotData, (img) => {
-        bgImageElement = img.getElement();
-        img.set({ selectable: false, evented: false });
-        canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
-        setZoomToFit();
-        saveHistory();
-        
-        // Bottom bar text
-        const dims = document.querySelectorAll('.bottom-bar span');
-        if(dims.length > 0) dims[0].innerText = `${img.width} × ${img.height}`;
-      });
+  chrome.storage.local.get(['screenshotData', 'screenshotMeta'], (data) => {
+    // Remove it straight away so it does not stay in storage if this tab is closed
+    chrome.storage.local.remove(['screenshotData', 'screenshotMeta']);
+
+    if (!data || !data.screenshotData) {
+      const empty = document.getElementById('editor-empty');
+      if (empty) empty.style.display = 'block';
+      return;
     }
+
+    screenshotMeta = data.screenshotMeta || {};
+    const source = document.getElementById('status-source');
+    if (source) {
+      const label = screenshotMeta.url || screenshotMeta.title || '';
+      source.textContent = label;
+      source.title = label;
+    }
+
+    fabric.Image.fromURL(data.screenshotData, (img) => {
+      bgImageElement = img.getElement();
+      img.set({ selectable: false, evented: false });
+      canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+      setZoomToFit();
+      saveHistory();
+      updateStatusBar();
+    });
   });
 
   // Crop System
@@ -380,6 +457,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     cropActionBar.style.display = 'none';
   }
 
+  function brushWidth() { return Math.max(12, currentThickness * 3); }
+
   function setTool(toolName) {
     document.querySelectorAll('.left-sidebar .tool-btn').forEach(b => b.classList.remove('active'));
     const btn = document.querySelector(`.left-sidebar .tool-btn[data-tool="${toolName}"]`);
@@ -389,14 +468,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     cleanupCrop();
     canvas.discardActiveObject();
     
-    canvas.isDrawingMode = (toolName === 'Pen' || toolName === 'Highlight');
+    canvas.isDrawingMode = (toolName === 'Pen' || toolName === 'Brush' || toolName === 'Highlight');
     canvas.selection = (toolName === 'Pointer');
     canvas.defaultCursor = (toolName === 'Pointer') ? 'default' : (canvas.isDrawingMode ? 'default' : 'crosshair');
-    
+
     if (toolName === 'Pen') {
       canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
       canvas.freeDrawingBrush.color = currentColor;
       canvas.freeDrawingBrush.width = currentThickness;
+    } else if (toolName === 'Brush') {
+      // A thick, round marker stroke
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.freeDrawingBrush.color = currentColor;
+      canvas.freeDrawingBrush.width = brushWidth();
+      canvas.freeDrawingBrush.strokeLineCap = 'round';
+      canvas.freeDrawingBrush.strokeLineJoin = 'round';
     } else if (toolName === 'Highlight') {
       canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
       canvas.freeDrawingBrush.color = new fabric.Color(currentColor).setAlpha(0.4).toRgba();
@@ -417,21 +503,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!bg) return;
       const cw = bg.width * 0.8;
       const ch = bg.height * 0.8;
+      cropRatio = null;
+      document.querySelectorAll('.crop-aspect-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-aspect') === 'free'));
       cropRect = new fabric.Rect({
-        left: bg.width / 2 - cw / 2,
-        top: bg.height / 2 - ch / 2,
-        width: cw,
-        height: ch,
+        left: Math.round(bg.width / 2 - cw / 2),
+        top: Math.round(bg.height / 2 - ch / 2),
+        width: Math.round(cw),
+        height: Math.round(ch),
         fill: 'transparent',
-        stroke: '#007AFF',
-        strokeWidth: 2,
-        strokeDashArray: [5, 5],
+        strokeWidth: 0, // the dashed outline is drawn by the overlay, so the rect is exactly the crop area
         cornerColor: '#007AFF',
         transparentCorners: false,
         selectable: true,
         evented: true,
-        hasRotatingPoint: false
+        lockRotation: true,
+        excludeFromExport: true // never part of undo history or exports
       });
+      cropRect.setControlVisible('mtr', false);
       canvas.add(cropRect);
       canvas.setActiveObject(cropRect);
       cropOverlay.style.display = 'block';
@@ -439,8 +527,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       cropActionBar.style.display = 'flex';
       syncCropOverlay();
     }
-    
+
     canvas.requestRenderAll();
+    updatePropsFromSelection();
   }
 
   document.querySelectorAll('.left-sidebar .tool-btn').forEach(btn => {
@@ -455,19 +544,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       e.target.classList.add('active');
       const aspect = e.target.getAttribute('data-aspect');
       if (!cropRect) return;
+      const sideHandles = { mt: true, mb: true, ml: true, mr: true };
       if (aspect === 'free') {
         cropRatio = null;
-        cropRect.set({ lockUniScaling: false });
       } else {
         const [w, h] = aspect.split(':').map(Number);
         cropRatio = w / h;
-        const currentH = cropRect.getScaledHeight();
-        cropRect.set({ 
-          width: currentH * cropRatio,
-          scaleX: 1,
-          lockUniScaling: true 
-        });
+        const bg = canvas.backgroundImage;
+        // Keep the current height where possible, but never grow past the image
+        let newH = cropRect.getScaledHeight();
+        let newW = newH * cropRatio;
+        if (bg && newW > bg.width) {
+          newW = bg.width;
+          newH = newW / cropRatio;
+        }
+        cropRect.set({ width: newW, height: newH, scaleX: 1, scaleY: 1 });
+        if (bg) {
+          cropRect.set({
+            left: Math.max(0, Math.min(cropRect.left, bg.width - newW)),
+            top: Math.max(0, Math.min(cropRect.top, bg.height - newH))
+          });
+        }
+        // Corner handles scale proportionally; the side handles would break the ratio
+        Object.keys(sideHandles).forEach(k => { sideHandles[k] = false; });
       }
+      cropRect.setControlsVisibility(sideHandles);
+      cropRect.setCoords();
       canvas.requestRenderAll();
       syncCropOverlay();
     });
@@ -475,45 +577,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('btn-cancel-crop')?.addEventListener('click', () => setTool('Pointer'));
   document.getElementById('btn-apply-crop')?.addEventListener('click', () => {
-    if(!cropRect) return;
-    
-    // Get crop rect logical coordinates
-    const cropLeft = cropRect.left;
-    const cropTop = cropRect.top;
-    const cropWidth = cropRect.getScaledWidth();
-    const cropHeight = cropRect.getScaledHeight();
-    
-    // Save current state then reset viewport for full-res export
-    const origVpt = canvas.viewportTransform.slice(0);
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    if (canvas.backgroundImage) {
-      canvas.setWidth(canvas.backgroundImage.width);
-      canvas.setHeight(canvas.backgroundImage.height);
+    const bg = canvas.backgroundImage;
+    if (!cropRect || !bg || !bgImageElement) return;
+
+    // Crop area in image pixels, clamped to the image
+    const x1 = Math.max(0, Math.round(cropRect.left));
+    const y1 = Math.max(0, Math.round(cropRect.top));
+    const x2 = Math.min(bg.width, Math.round(cropRect.left + cropRect.getScaledWidth()));
+    const y2 = Math.min(bg.height, Math.round(cropRect.top + cropRect.getScaledHeight()));
+    const cropLeft = x1;
+    const cropTop = y1;
+    const cropWidth = x2 - x1;
+    const cropHeight = y2 - y1;
+    if (cropWidth < 1 || cropHeight < 1) {
+      showToast('The crop area is outside the image.');
+      return;
     }
-    cropRect.visible = false;
-    canvas.discardActiveObject();
-    canvas.renderAll();
-    
-    // Export just the crop region at full resolution
-    const croppedDataURL = canvas.toDataURL({
-      format: 'png',
-      left: cropLeft,
-      top: cropTop,
-      width: cropWidth,
-      height: cropHeight
-    });
-    
-    // Restore viewport temporarily
-    resizeCanvas();
-    canvas.setViewportTransform(origVpt);
-    cropRect.visible = true;
-    
+
+    // Crop only the screenshot itself. Annotations stay as separate, editable
+    // objects and are simply shifted below.
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cropWidth;
+    cropCanvas.height = cropHeight;
+    cropCanvas.getContext('2d').drawImage(bgImageElement, cropLeft, cropTop, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    const croppedDataURL = cropCanvas.toDataURL('image/png');
+
     fabric.Image.fromURL(croppedDataURL, (img) => {
       bgImageElement = img.getElement();
       img.set({ selectable: false, evented: false });
-      
+
       // Remove cropRect and reposition all objects
       canvas.remove(cropRect);
+      cropRect = null;
       const objects = canvas.getObjects();
       for (let i = objects.length - 1; i >= 0; i--) {
         const obj = objects[i];
@@ -534,9 +629,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         cleanupCrop();
         setTool('Pointer');
         saveHistory();
-        
-        const dims = document.querySelectorAll('.bottom-bar span');
-        if(dims.length > 0) dims[0].innerText = `${Math.round(cropWidth)} × ${Math.round(cropHeight)}`;
+        updateStatusBar();
       });
     });
   });
@@ -552,7 +645,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   canvas.on('mouse:down', function(opt) {
     if (activeTool === 'Pointer' || activeTool === 'Crop' || canvas.isDrawingMode || isDraggingCanvas) return;
-    
+    if (opt.e.button !== 0) return; // only the main mouse button draws
+    if (!canvas.backgroundImage) return;
+
     const pointer = canvas.getPointer(opt.e);
     startX = pointer.x;
     startY = pointer.y;
@@ -597,12 +692,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         selectable: true,
         evented: true
       });
-      canvas.add(currentShape);
-      canvas.setActiveObject(currentShape);
-      currentShape.enterEditing();
-      currentShape.selectAll();
+      const textObj = currentShape;
+      currentShape = null;
       isDrawingShape = false;
+      // Switch to the pointer first: setTool() clears the selection, which would
+      // otherwise kick the new text box straight out of edit mode.
       setTool('Pointer');
+      canvas.add(textObj);
+      canvas.setActiveObject(textObj);
+      textObj.enterEditing();
+      textObj.selectAll();
       saveHistory();
       return;
     } else if (activeTool === 'NumberMarker') {
@@ -625,9 +724,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         fill: 'transparent',
         stroke: '#000',
         strokeDashArray: [5, 5],
+        strokeWidth: 1,
         selectable: false,
         evented: false,
-        isTemporaryFilterRect: true
+        isTemporaryFilterRect: true,
+        excludeFromExport: true
       });
     } else if (activeTool === 'Solid') {
       currentShape = new fabric.Rect({
@@ -696,21 +797,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (activeTool === 'Blur' || activeTool === 'Pixelate') {
-      currentShape.setCoords();
-      const br = currentShape.getBoundingRect(true, true);
-      const filterDataURL = generateFilterRegionDataURL(br, activeTool, bgImageElement);
-      
+      // Keep our own references: currentShape is reset below, before the image has loaded
+      const tempRect = currentShape;
+      const filterType = activeTool;
+      const br = {
+        left: Math.round(tempRect.left),
+        top: Math.round(tempRect.top),
+        width: Math.max(1, Math.round(tempRect.width)),
+        height: Math.max(1, Math.round(tempRect.height))
+      };
+      const filterDataURL = generateFilterRegionDataURL(br, filterType, bgImageElement);
+
       fabric.Image.fromURL(filterDataURL, (img) => {
         img.set({
           left: br.left,
           top: br.top,
           selectable: (activeTool === 'Pointer'),
           evented: (activeTool === 'Pointer'),
-          filterType: activeTool
+          filterType: filterType
         });
+        canvas.remove(tempRect);
         canvas.add(img);
-        canvas.remove(currentShape);
-        currentShape = null;
         saveHistory();
       });
     } else {
@@ -730,9 +837,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (canvas.getActiveObject() && canvas.getActiveObject().isEditing) return;
 
-    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+    const key = (e.key || '').toLowerCase();
+
+    // Undo: Cmd/Ctrl+Z. Redo: Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y.
+    if ((e.metaKey || e.ctrlKey) && (key === 'z' || key === 'y')) {
       e.preventDefault();
-      if (e.shiftKey) doRedo();
+      if (key === 'y' || e.shiftKey) doRedo();
       else doUndo();
       return;
     }
@@ -741,8 +851,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       'v': 'Pointer', 'r': 'Rectangle', 'c': 'Circle', 'a': 'Arrow', 'l': 'Line',
       'p': 'Pen', 't': 'Text', 'h': 'Highlight', 'b': 'Blur', 'n': 'NumberMarker'
     };
-    if (keyMap[e.key.toLowerCase()] && !e.metaKey && !e.ctrlKey) {
-      setTool(keyMap[e.key.toLowerCase()]);
+    if (keyMap[key] && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      setTool(keyMap[key]);
     }
 
     if (e.key === 'Escape') {
@@ -831,24 +941,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   const textBgInput = document.getElementById('rs-input-textbg');
   const textShadowInput = document.getElementById('rs-input-textshadow');
 
-  function applyPropertiesToActiveObject() {
-    const obj = canvas.getActiveObject();
-    if (!obj) return;
-
-    if (obj.type === 'i-text' || obj.type === 'text') {
-      obj.set({ fill: currentColor });
-    } else if (obj.type === 'path' || obj.type === 'line' || obj.type === 'arrow') {
-      obj.set({ stroke: currentColor, strokeWidth: currentThickness });
-    } else if (obj.type === 'numberMarker') {
-      obj.item(0).set({ fill: currentColor });
-    } else if (!obj.isTemporaryFilterRect && obj.type !== 'image') {
-      obj.set({ stroke: currentColor, fill: currentFill, strokeWidth: currentThickness });
-    }
-    
-    if (activeTool === 'Pen' && canvas.freeDrawingBrush) {
+  // what: 'color' or 'fill' - only the property the user just changed is applied
+  function applyPropertiesToActiveObject(what) {
+    // Keep the drawing brush in sync even when nothing is selected
+    if ((activeTool === 'Pen' || activeTool === 'Brush') && canvas.freeDrawingBrush) {
       canvas.freeDrawingBrush.color = currentColor;
     } else if (activeTool === 'Highlight' && canvas.freeDrawingBrush) {
       canvas.freeDrawingBrush.color = new fabric.Color(currentColor).setAlpha(0.4).toRgba();
+    }
+
+    const obj = canvas.getActiveObject();
+    if (!obj || obj === cropRect || obj.type === 'activeSelection') return;
+
+    if (obj.type === 'i-text' || obj.type === 'text') {
+      if (what === 'color') obj.set({ fill: currentColor });
+    } else if (obj.type === 'path' || obj.type === 'line' || obj.type === 'arrow') {
+      if (what === 'color') obj.set({ stroke: currentColor });
+    } else if (obj.type === 'numberMarker') {
+      if (what === 'color') {
+        obj.item(0).set({ fill: currentColor });
+        obj.set({ fill: currentColor, dirty: true });
+      }
+    } else if (obj.type === 'rect' && !obj.stroke && what === 'color') {
+      obj.set({ fill: currentColor }); // solid redaction box
+    } else if (obj.type === 'rect' || obj.type === 'ellipse') {
+      if (what === 'color') obj.set({ stroke: currentColor });
+      else obj.set({ fill: currentFill });
+    } else {
+      return; // images (blur / pixelate) have no colour
     }
 
     canvas.requestRenderAll();
@@ -860,7 +980,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
       e.currentTarget.classList.add('active');
       currentColor = e.currentTarget.style.backgroundColor || e.currentTarget.style.background || '#000000';
-      applyPropertiesToActiveObject();
+      applyPropertiesToActiveObject('color');
     });
   });
 
@@ -873,7 +993,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         currentFill = e.currentTarget.style.backgroundColor || e.currentTarget.style.background || '#000000';
       }
-      applyPropertiesToActiveObject();
+      applyPropertiesToActiveObject('fill');
     });
   });
 
@@ -886,6 +1006,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       canvas.requestRenderAll();
     }
     if (activeTool === 'Pen') canvas.freeDrawingBrush.width = currentThickness;
+    if (activeTool === 'Brush') canvas.freeDrawingBrush.width = brushWidth();
     if (activeTool === 'Highlight') canvas.freeDrawingBrush.width = Math.max(20, currentThickness * 4);
   });
   thicknessSlider?.addEventListener('change', () => { if(canvas.getActiveObject()) saveHistory(); });
@@ -948,16 +1069,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  const TOOL_TITLES = {
+    Rectangle: 'Rectangle', RoundedRectangle: 'Rounded Rect', Circle: 'Ellipse', Arrow: 'Arrow', Line: 'Line',
+    Pen: 'Pen', Brush: 'Brush', Highlight: 'Highlighter', Text: 'Text', NumberMarker: 'Number Marker', Solid: 'Solid Redact'
+  };
+
   function updatePropsFromSelection() {
     const obj = canvas.getActiveObject();
+    const setDisplay = (id, show) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = show ? 'block' : 'none';
+    };
+
     if (!obj || obj === cropRect) {
-      rsDefault.style.display = 'block';
-      rsProperties.style.display = 'none';
+      // No selection: if a drawing tool is active, show the style it will draw with
+      if (TOOL_TITLES[activeTool]) {
+        rsDefault.style.display = 'none';
+        rsProperties.style.display = 'flex';
+        rsPropTitle.innerText = TOOL_TITLES[activeTool];
+        const isShapeTool = ['Rectangle', 'RoundedRectangle', 'Circle'].includes(activeTool);
+        const hasStroke = !['Text', 'NumberMarker', 'Solid'].includes(activeTool);
+        setDisplay('rs-transform-section', false);
+        setDisplay('rs-opacity-section', false);
+        setDisplay('rs-radius-section', false);
+        setDisplay('rs-font-section', false);
+        setDisplay('rs-color-section', true);
+        setDisplay('rs-fill-section', isShapeTool);
+        setDisplay('rs-thickness-section', hasStroke);
+        if (thicknessSlider) thicknessSlider.value = currentThickness;
+        if (thicknessVal) thicknessVal.innerText = currentThickness + 'px';
+      } else {
+        rsDefault.style.display = 'block';
+        rsProperties.style.display = 'none';
+      }
       return;
     }
     rsDefault.style.display = 'none';
     rsProperties.style.display = 'flex';
-    
+    setDisplay('rs-transform-section', true);
+    setDisplay('rs-opacity-section', true);
+
     const typeNames = {
       'rect': obj.rx > 0 ? 'Rounded Rect' : 'Rectangle',
       'ellipse': 'Ellipse',
@@ -1090,31 +1241,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (canvas.getActiveObject() === obj) item.classList.add('active');
       
       item.onclick = (e) => {
-        if(e.target.tagName === 'BUTTON' || e.target.parentElement.tagName === 'BUTTON') return;
+        if (e.target.closest('button')) return;
+        if (activeTool !== 'Pointer') setTool('Pointer');
+        if (!obj.visible) return;
         canvas.setActiveObject(obj);
         canvas.requestRenderAll();
+        updateObjectsList();
       };
       
       let typeName = obj.type.charAt(0).toUpperCase() + obj.type.slice(1);
       if (obj.filterType) typeName = obj.filterType;
       
-      item.innerHTML = `
-        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${obj.fill && obj.fill !== 'transparent' ? obj.fill : (obj.stroke || '#fff')}; margin-right:8px;"></span>
-        <span style="flex-grow:1; font-size:12px;">${typeName}</span>
-        <button class="layer-btn visibility-btn">${obj.visible ? '👁️' : '👁️‍🗨️'}</button>
-        <button class="layer-btn delete-btn">🗑️</button>
-      `;
-      
-      item.querySelector('.visibility-btn').onclick = () => {
+      const LAYER_NAMES = { 'i-text': 'Text', path: 'Drawing', numberMarker: 'Number Marker', rect: 'Rectangle' };
+      if (LAYER_NAMES[obj.type]) typeName = LAYER_NAMES[obj.type];
+      if (obj.type === 'rect' && !obj.stroke) typeName = 'Redaction';
+      if (obj.markerNumber) typeName = `Marker ${obj.markerNumber}`;
+
+      const fillColor = (typeof obj.fill === 'string' && obj.fill && obj.fill !== 'transparent') ? obj.fill : (obj.stroke || '#fff');
+
+      const swatch = document.createElement('span');
+      swatch.className = 'layer-swatch';
+      swatch.style.background = fillColor;
+
+      const name = document.createElement('span');
+      name.className = 'layer-name';
+      name.textContent = typeName;
+
+      const visBtn = document.createElement('button');
+      visBtn.className = 'layer-btn visibility-btn';
+      visBtn.title = obj.visible ? 'Hide' : 'Show';
+      visBtn.textContent = obj.visible ? '👁️' : '🚫';
+      visBtn.onclick = () => {
         obj.visible = !obj.visible;
+        if (!obj.visible) canvas.discardActiveObject();
         canvas.requestRenderAll();
-        updateObjectsList();
-      };
-      item.querySelector('.delete-btn').onclick = () => {
-        canvas.remove(obj);
         saveHistory();
       };
-      
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'layer-btn delete-btn';
+      delBtn.title = 'Delete';
+      delBtn.textContent = '🗑️';
+      delBtn.onclick = () => {
+        canvas.remove(obj);
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+        saveHistory();
+      };
+
+      item.append(swatch, name, visBtn, delBtn);
+
       objectsList.appendChild(item);
     }
     
@@ -1123,74 +1299,103 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Export
-  function getFinalDataURL() {
-    const origVpt = canvas.viewportTransform;
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    if (canvas.backgroundImage) {
-      canvas.setWidth(canvas.backgroundImage.width);
-      canvas.setHeight(canvas.backgroundImage.height);
+  function buildFileBase() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+    const title = (screenshotMeta.title || '')
+      .replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+    return title ? `Lumina_${title}_${stamp}` : `Lumina_${stamp}`;
+  }
+
+  // Copy
+  document.getElementById('btn-copy')?.addEventListener('click', async () => {
+    try {
+      const dataURL = exportFullImage();
+      if (!dataURL) return;
+      const blob = await (await fetch(dataURL)).blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+      showToast('Copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      showToast('Could not copy. Very large images may be too big; use Save image instead.');
     }
-    canvas.discardActiveObject();
-    if(cropRect) cropRect.visible = false;
-    canvas.renderAll();
-    
-    const dataURL = canvas.toDataURL({ format: 'png' });
-    
-    resizeCanvas();
-    canvas.setViewportTransform(origVpt);
-    if(cropRect) cropRect.visible = true;
-    canvas.renderAll();
-    
-    return dataURL;
-  }
+  });
 
-  // Export buttons - matched by position in the right toolbar section
-  const rightSection = document.querySelector('.toolbar-section.right');
-  if (rightSection) {
-    const exportBtns = rightSection.querySelectorAll('.icon-btn');
-    
-    // Copy (1st button)
-    if (exportBtns[0]) exportBtns[0].addEventListener('click', async () => {
+  // PDF
+  document.getElementById('btn-pdf')?.addEventListener('click', () => {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      showToast('PDF export is unavailable.');
+      return;
+    }
+    const bg = canvas.backgroundImage;
+    if (!bg) return;
+    showToast('Creating PDF…');
+
+    // Let the message paint before the heavy work starts
+    setTimeout(() => {
       try {
-        const dataURL = getFinalDataURL();
-        const blob = await (await fetch(dataURL)).blob();
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob })
-        ]);
-        alert('Copied to clipboard!');
-      } catch (err) {
-        alert('Failed to copy: ' + err);
-      }
-    });
+        // Render straight to JPEG: jsPDF is very slow (and can run out of memory)
+        // when it has to decode a large PNG itself.
+        const active = canvas.getActiveObject();
+        if (active && active.isEditing) active.exitEditing();
+        canvas.discardActiveObject();
+        const origVpt = canvas.viewportTransform.slice();
+        const origBgColor = canvas.backgroundColor;
+        if (cropRect) cropRect.visible = false;
+        canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+        canvas.backgroundColor = '#ffffff';
+        let jpeg;
+        try {
+          jpeg = canvas.toDataURL({ format: 'jpeg', quality: 0.95, left: 0, top: 0, width: bg.width, height: bg.height });
+        } finally {
+          canvas.backgroundColor = origBgColor;
+          if (cropRect) cropRect.visible = true;
+          canvas.setViewportTransform(origVpt);
+          canvas.requestRenderAll();
+        }
 
-    // PDF (2nd button)
-    if (exportBtns[1]) exportBtns[1].addEventListener('click', () => {
-      if (!window.jspdf || !window.jspdf.jsPDF) {
-        alert('jsPDF library not loaded');
-        return;
-      }
-      const dataURL = getFinalDataURL();
-      const img = new Image();
-      img.onload = () => {
+        // A PDF page cannot be larger than 14,400 pt (jsPDF's "px" unit is 0.75 pt)
+        const maxPagePx = 14400 / 0.75;
+        const fit = Math.min(1, maxPagePx / Math.max(bg.width, bg.height));
+        const pageW = bg.width * fit;
+        const pageH = bg.height * fit;
+
         const pdf = new window.jspdf.jsPDF({
-          orientation: img.width > img.height ? 'landscape' : 'portrait',
+          orientation: pageW > pageH ? 'landscape' : 'portrait',
           unit: 'px',
-          format: [img.width, img.height]
+          format: [pageW, pageH],
+          compress: true
         });
-        pdf.addImage(dataURL, 'PNG', 0, 0, img.width, img.height);
-        pdf.save('Lumina-Annotation.pdf');
-      };
-      img.src = dataURL;
-    });
+        pdf.addImage(jpeg, 'JPEG', 0, 0, pageW, pageH);
+        pdf.save(`${buildFileBase()}.pdf`);
+      } catch (err) {
+        console.error('PDF generation failed:', err);
+        showToast('Could not create the PDF.');
+      }
+    }, 50);
+  });
 
-    // Save Image (3rd button)
-    if (exportBtns[2]) exportBtns[2].addEventListener('click', () => {
-      const dataURL = getFinalDataURL();
-      const a = document.createElement('a');
-      a.href = dataURL;
-      a.download = 'Lumina-Screenshot.png';
-      a.click();
-    });
-  }
+  // Save Image
+  document.getElementById('btn-save')?.addEventListener('click', async () => {
+    try {
+      const dataURL = exportFullImage();
+      if (!dataURL) return;
+      // A blob: URL is used because very large data: URLs can fail to download
+      const blob = await (await fetch(dataURL)).blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      await chrome.downloads.download({ url: blobUrl, filename: `${buildFileBase()}.png`, saveAs: true });
+    } catch (err) {
+      if (!/cancel/i.test(String(err && err.message))) {
+        console.error('Failed to save image:', err);
+        showToast('Could not save the image.');
+      }
+    }
+  });
 
+  updateHistoryButtons();
+  updateObjectsList();
 });

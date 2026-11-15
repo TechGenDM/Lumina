@@ -1,0 +1,7 @@
+# Release builds (created by `npm run build`)
+dist/
+*.zip
+
+# Dependencies / OS noise
+node_modules/
+.DS_Store

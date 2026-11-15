@@ -318,6 +318,43 @@
             letter-spacing: -0.01em;
         }
 
+        /* Error / empty states shown in place of the spinner */
+        #loading p.state-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--text-main);
+            text-align: center;
+        }
+
+        #loading p.state-detail {
+            max-width: 460px;
+            text-align: center;
+            line-height: 1.5;
+            font-weight: 400;
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Notice shown when a capture had to be shortened or downscaled */
+        #capture-notice {
+            display: none;
+            padding: 8px 28px;
+            font-size: 12px;
+            text-align: center;
+            color: var(--text-main);
+            background: rgba(255, 204, 0, 0.18);
+            border-bottom: 0.5px solid rgba(128, 128, 128, 0.2);
+        }
+
+        .modal-content p.report-disclosure {
+            font-size: 11px;
+            line-height: 1.45;
+            margin-bottom: 12px;
+        }
+
         .mac-spinner {
             width: 28px;
             height: 28px;
@@ -492,6 +529,8 @@
         </div>
     </div>
     
+    <div id="capture-notice" role="status"></div>
+
     <div class="workspace">
         <div id="loading">
             <div class="mac-spinner"></div>
@@ -529,8 +568,9 @@
         <div class="modal-content">
             <h2>Report an Issue</h2>
             <p>Please describe the issue you are experiencing:</p>
-            <input type="email" id="report-user-email" placeholder="Your email (optional, for reply)">
-            <textarea id="issue-description" rows="5" placeholder="Enter details here..."></textarea>
+            <input type="email" id="report-user-email" maxlength="254" placeholder="Your email (optional, for reply)">
+            <textarea id="issue-description" rows="5" maxlength="4000" placeholder="Enter details here..."></textarea>
+            <p class="report-disclosure">Clicking "Send report" sends your message, your email address (if you enter one), your browser version and the time to the developer through the EmailJS service. Your screenshot and the page you captured are never sent.</p>
             <div id="report-status" class="report-status-msg"></div>
             <div class="modal-actions">
                 <button id="cancel-report" class="btn btn-secondary">Cancel</button>

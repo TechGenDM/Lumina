@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lumina",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "A premium Chrome extension for capturing pixel-perfect, full-page screenshots natively.",
   "icons": {
     "16": "icons/icon16.png",
@@ -15,9 +15,6 @@
     "downloads",
     "storage",
     "unlimitedStorage"
-  ],
-  "host_permissions": [
-    "https://api.emailjs.com/*"
   ],
   "action": {
     "default_title": "Take Full-Page Screenshot",

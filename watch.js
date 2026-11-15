@@ -6,7 +6,7 @@ const PORT = 8890;
 const waitingClients = new Set();
 let debounceTimer = null;
 
-const ignoredFiles = new Set(['watch.js', 'package.json', 'package-lock.json', '.DS_Store']);
+const ignoredFiles = new Set(['watch.js', 'build.js', 'package.json', 'package-lock.json', '.DS_Store']);
 
 function notifyReload(filename) {
   console.log(`\x1b[36m[Lumina Dev]\x1b[0m 📝 \x1b[33m${filename}\x1b[0m modified → \x1b[32mReloading extension in Chrome...\x1b[0m`);
@@ -28,7 +28,8 @@ function notifyReload(filename) {
 // Watch project directory recursively for changes
 fs.watch(__dirname, { recursive: true }, (eventType, filename) => {
   if (!filename) return;
-  if (filename.startsWith('.') || filename.includes('node_modules') || ignoredFiles.has(filename)) return;
+  if (filename.startsWith('.') || filename.startsWith('dist') || filename.includes('node_modules') || ignoredFiles.has(filename)) return;
+  if (/\.(md|zip)$/i.test(filename)) return; // docs and release archives don't affect the running extension
 
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
